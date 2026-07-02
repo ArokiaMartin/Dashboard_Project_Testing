@@ -1,0 +1,163 @@
+<div class="studio">
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">◆</span>
+      <div>
+        <p class="brand-name">Dashboard Studio</p>
+        <p class="brand-tag">Dynamic dashboard builder</p>
+      </div>
+    </div>
+
+    <div class="title-editor" *ngIf="dataImported">
+      <input
+        type="text"
+        [(ngModel)]="dashboardName"
+        aria-label="Dashboard name"
+        placeholder="Dashboard name"
+      >
+    </div>
+
+    <div class="topbar-actions">
+      <button type="button" class="btn ghost" (click)="newDashboard()">＋ New</button>
+      <button type="button" class="btn ghost" (click)="generateReport()">🗎 Generate Report</button>
+      <button type="button" class="btn primary" (click)="saveDashboard()">💾 Save Dashboard</button>
+    </div>
+  </header>
+
+  <div class="studio-body">
+    <!-- Left sidebar -->
+    <aside class="sidebar">
+      <button type="button" class="import-btn" (click)="openImportModal()">
+        <span class="import-icon">⬇</span>
+        <span>
+          <span class="import-title">Import Data</span>
+          <span class="import-sub">{{ dataImported ? 'Change dataset' : 'Choose a source' }}</span>
+        </span>
+      </button>
+
+      <div class="dataset-chip" *ngIf="dataImported">
+        <span class="dot"></span>
+        <div>
+          <p class="chip-name">{{ selectedDataset?.name }}</p>
+          <p class="chip-meta">{{ selectedDataset?.rows?.length }} rows · {{ fieldMetadata.length }} columns</p>
+        </div>
+      </div>
+
+      <div class="sidebar-scroll">
+        <div class="sidebar-section" *ngIf="dataImported">
+          <p class="sidebar-heading">Columns</p>
+          <app-field-list
+            [fields]="fieldMetadata"
+            [selectedComponent]="selectedComponent"
+            [isFieldCompatible]="isFieldCompatibleWithSelectedComponent.bind(this)"
+          ></app-field-list>
+        </div>
+
+        <div class="sidebar-section empty-hint" *ngIf="!dataImported">
+          <p class="sidebar-heading">Columns</p>
+          <p class="helper-text">Import a dataset to load its columns here.</p>
+        </div>
+
+        <div class="sidebar-section">
+          <p class="sidebar-heading">Previous Dashboards</p>
+
+          <p class="helper-text" *ngIf="!savedDashboards.length">No saved dashboards yet.</p>
+
+          <ul class="saved-list">
+            <li
+              class="saved-item"
+              *ngFor="let dashboard of savedDashboards"
+              (click)="loadDashboard(dashboard)"
+            >
+              <div class="saved-info">
+                <p class="saved-name">{{ dashboard.name }}</p>
+                <p class="saved-meta">{{ dashboard.componentLabel }} · {{ dashboard.datasetName }}</p>
+              </div>
+              <button
+                type="button"
+                class="saved-delete"
+                (click)="deleteDashboard(dashboard, $event)"
+                aria-label="Delete dashboard"
+              >✕</button>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main workspace -->
+    <main class="workspace">
+      <ng-container *ngIf="dataImported; else onboarding">
+        <div class="workspace-grid">
+          <section class="canvas-column">
+            <app-preview-renderer
+              [selectedDataset]="selectedDataset"
+              [selectedComponent]="selectedComponent"
+              [validationResult]="validationResult"
+              [payload]="previewPayload"
+            ></app-preview-renderer>
+
+            <app-component-selector
+              [components]="components"
+              [selectedComponentId]="selectedComponent?.id ?? null"
+              [disabled]="!dataImported"
+              (componentSelected)="onComponentSelected($event)"
+            ></app-component-selector>
+          </section>
+
+          <section class="config-column">
+            <app-field-mapping-panel
+              [selectedComponent]="selectedComponent"
+              [fields]="fieldMetadata"
+              [mappings]="mappings"
+              [kpiAggregation]="kpiAggregation"
+              [validationMessages]="validationResult.messages"
+              [datasetSelected]="dataImported"
+              [kpiAggregations]="kpiAggregations"
+              (mappingChanged)="onMappingChanged($event)"
+              (aggregationChanged)="onKpiAggregationChanged($event)"
+            ></app-field-mapping-panel>
+
+            <app-filter-panel
+              *ngIf="selectedComponent"
+              [fields]="fieldMetadata"
+              [rows]="selectedDataset?.rows ?? []"
+              [filters]="filters"
+              [supportsAggregation]="!!selectedComponent.supportsAggregation"
+              [aggregation]="chartAggregation"
+              [aggregations]="kpiAggregations"
+              (filtersChanged)="onFiltersChanged($event)"
+              (aggregationChanged)="onChartAggregationChanged($event)"
+            ></app-filter-panel>
+          </section>
+        </div>
+      </ng-container>
+
+      <ng-template #onboarding>
+        <div class="onboarding">
+          <div class="onboarding-card">
+            <span class="onboarding-icon">📊</span>
+            <h1>Build a dashboard in minutes</h1>
+            <p>Import one of the predefined datasets to load its columns, then add charts, tables and KPI cards with type-aware field mapping and filters.</p>
+            <button type="button" class="btn primary lg" (click)="openImportModal()">Import a dataset</button>
+            <div class="onboarding-features">
+              <span>▥ 8 component types</span>
+              <span>⛃ Smart filters</span>
+              <span>💾 Save &amp; reopen</span>
+            </div>
+          </div>
+        </div>
+      </ng-template>
+    </main>
+  </div>
+</div>
+
+<app-import-modal
+  [datasets]="datasets"
+  [open]="showImportModal"
+  (imported)="onDatasetImported($event)"
+  (closed)="closeImportModal()"
+></app-import-modal>
+
+<div class="toast" *ngIf="toastMessage">{{ toastMessage }}</div>

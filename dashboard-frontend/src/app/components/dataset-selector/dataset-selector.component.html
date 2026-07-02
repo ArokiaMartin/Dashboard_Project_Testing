@@ -1,0 +1,40 @@
+<article class="panel dataset-panel">
+  <div class="panel-head">
+    <p class="section-title">Dataset Import Simulation</p>
+    <h2>Choose a Frontend Dataset</h2>
+    <p class="helper-text">Simulated import source. Select one table to drive dynamic dashboard mapping.</p>
+  </div>
+
+  <div class="dataset-grid">
+    <button
+      type="button"
+      class="dataset-card"
+      *ngFor="let dataset of datasets"
+      [class.selected]="selectedDataset?.id === dataset.id"
+      (click)="selectDataset(dataset.id)"
+    >
+      <h3>{{ dataset.name }}</h3>
+      <p>{{ dataset.description }}</p>
+      <span>{{ dataset.rows.length }} rows</span>
+    </button>
+  </div>
+
+  <div class="dataset-summary" *ngIf="selectedDataset; else emptyDatasetState">
+    <h3>{{ selectedDataset.name }} Summary</h3>
+    <div class="summary-row">
+      <span>{{ selectedDataset.rows.length }} rows</span>
+      <span>{{ fieldMetadata.length }} columns</span>
+    </div>
+
+    <div class="field-badges">
+      <div class="field-badge" *ngFor="let field of fieldMetadata">
+        <span class="field-name">{{ field.name }}</span>
+        <span [class]="getTypeClass(field.type)">{{ field.type }}</span>
+      </div>
+    </div>
+  </div>
+
+  <ng-template #emptyDatasetState>
+    <p class="helper-text empty-text">Select a dataset to see table structure, columns, and detected field types.</p>
+  </ng-template>
+</article>

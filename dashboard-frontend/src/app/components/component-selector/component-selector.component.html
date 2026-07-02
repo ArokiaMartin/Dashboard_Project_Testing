@@ -1,0 +1,24 @@
+<article class="panel component-panel">
+  <div class="panel-head">
+    <p class="section-title">Component Selection</p>
+    <h2>Choose a Visualization</h2>
+    <p class="helper-text" *ngIf="disabled">Select a dataset first to enable components.</p>
+  </div>
+
+  <div class="component-grid" [class.disabled]="disabled">
+    <button
+      type="button"
+      class="component-card"
+      *ngFor="let component of components"
+      [class.selected]="component.id === selectedComponentId"
+      [disabled]="disabled"
+      (click)="selectComponent(component.id)"
+    >
+      <span class="icon">{{ component.icon }}</span>
+      <div>
+        <h3>{{ component.label }}</h3>
+        <p>{{ component.description }}</p>
+      </div>
+    </button>
+  </div>
+</article>

@@ -1,0 +1,27 @@
+<article class="panel field-list-panel">
+  <div class="panel-head">
+    <p class="section-title">Fields</p>
+    <h2>Detected Columns</h2>
+    <p class="helper-text" *ngIf="!selectedComponent">Select a component to see compatibility blur states.</p>
+  </div>
+
+  <div class="field-list" *ngIf="fields.length; else noFieldsState">
+    <div
+      class="field-item"
+      *ngFor="let field of fields"
+      [class.compatible-field]="isFieldCompatible(field)"
+      [class.incompatible-field]="!isFieldCompatible(field)"
+      [attr.aria-disabled]="!isFieldCompatible(field)"
+    >
+      <div class="field-main">
+        <strong>{{ field.name }}</strong>
+        <small *ngIf="field.sampleValues.length">Samples: {{ field.sampleValues.join(', ') }}</small>
+      </div>
+      <span [class]="getTypeClass(field.type)">{{ field.type }}</span>
+    </div>
+  </div>
+
+  <ng-template #noFieldsState>
+    <p class="helper-text empty-text">Dataset fields will appear here after dataset selection.</p>
+  </ng-template>
+</article>

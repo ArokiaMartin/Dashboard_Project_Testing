@@ -1,0 +1,62 @@
+.field-list-panel {
+  padding: 20px;
+}
+
+.panel-head h2 {
+  margin-top: 7px;
+  font-size: 1.3rem;
+}
+
+.panel-head .helper-text {
+  margin-top: 8px;
+}
+
+.field-list {
+  margin-top: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.field-item {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #f9fbff;
+  padding: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: all 0.18s ease;
+}
+
+.field-main {
+  display: grid;
+  gap: 4px;
+}
+
+.field-main strong {
+  font-size: 0.92rem;
+}
+
+.field-main small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  max-width: 190px;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.compatible-field {
+  opacity: 1;
+}
+
+.incompatible-field {
+  opacity: 0.45;
+  filter: blur(0.7px);
+  cursor: not-allowed;
+  background: #f3f5fa;
+}
+
+.empty-text {
+  margin-top: 12px;
+}

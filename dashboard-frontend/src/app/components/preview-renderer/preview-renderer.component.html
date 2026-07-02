@@ -1,0 +1,44 @@
+<article class="panel preview-panel">
+  <div class="panel-head">
+    <p class="section-title">Preview</p>
+    <h2>Live Component Preview</h2>
+  </div>
+
+  <div class="preview-body" *ngIf="selectedDataset; else noDataset">
+    <div class="empty-state" *ngIf="!selectedComponent">
+      <h3>Pick a component to preview</h3>
+      <p class="helper-text">Once selected, map compatible fields and your component renders automatically.</p>
+    </div>
+
+    <div class="validation-state" *ngIf="selectedComponent && !validationResult.isValid">
+      <h3>Select valid fields to preview this component.</h3>
+      <ul class="validation-list">
+        <li *ngFor="let message of validationResult.messages">{{ message }}</li>
+      </ul>
+    </div>
+
+    <ng-container *ngIf="selectedComponent && validationResult.isValid && payload">
+      <app-chart-renderer *ngIf="payload.kind === 'chart'" [option]="payload.option"></app-chart-renderer>
+
+      <app-data-table-renderer
+        *ngIf="payload.kind === 'table'"
+        [columns]="payload.columns"
+        [rows]="payload.rows"
+      ></app-data-table-renderer>
+
+      <app-kpi-card-renderer
+        *ngIf="payload.kind === 'kpi'"
+        [value]="payload.value"
+        [aggregation]="payload.aggregation"
+        [metricLabel]="payload.metricLabel"
+      ></app-kpi-card-renderer>
+    </ng-container>
+  </div>
+
+  <ng-template #noDataset>
+    <div class="empty-state">
+      <h3>Start by selecting a dataset</h3>
+      <p class="helper-text">Preview area will activate after dataset import simulation and mapping setup.</p>
+    </div>
+  </ng-template>
+</article>

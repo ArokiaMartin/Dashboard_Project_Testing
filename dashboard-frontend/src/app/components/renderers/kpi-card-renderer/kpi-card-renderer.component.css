@@ -1,0 +1,20 @@
+.kpi-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: linear-gradient(160deg, #f7fbff, #eef7f5);
+  padding: 26px;
+}
+
+.kpi-label {
+  color: var(--muted);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+}
+
+h3 {
+  margin-top: 10px;
+  font-size: clamp(1.7rem, 3vw, 2.4rem);
+  color: #0f4c81;
+}

@@ -1,0 +1,84 @@
+<article class="panel filter-panel">
+  <div class="panel-head">
+    <div>
+      <p class="section-title">Filters</p>
+      <h2>Refine &amp; Aggregate</h2>
+    </div>
+    <button
+      type="button"
+      class="clear-btn"
+      *ngIf="activeFilterCount > 0"
+      (click)="clearAll()"
+    >
+      Clear ({{ activeFilterCount }})
+    </button>
+  </div>
+
+  <div class="agg-block" *ngIf="supportsAggregation">
+    <label class="filter-label" for="value-aggregation">Value aggregation</label>
+    <div class="agg-pills">
+      <button
+        type="button"
+        class="agg-pill"
+        *ngFor="let agg of aggregations"
+        [class.active]="aggregation === agg"
+        (click)="onAggregationChange(agg)"
+      >
+        {{ agg }}
+      </button>
+    </div>
+    <p class="helper-text">Applied when grouping values for this component.</p>
+  </div>
+
+  <div class="filter-section" *ngIf="numberFields.length">
+    <p class="filter-heading">Numeric ranges</p>
+    <div class="range-filter" *ngFor="let field of numberFields">
+      <div class="range-head">
+        <span>{{ field.name }}</span>
+        <span class="range-hint" *ngIf="getRange(field.name) as range">
+          {{ range.min }} – {{ range.max }}
+        </span>
+      </div>
+      <div class="range-inputs">
+        <input
+          type="number"
+          placeholder="Min"
+          [ngModel]="getBound(field.name, 'min')"
+          (ngModelChange)="onRangeChange(field.name, 'min', $event)"
+        >
+        <span class="dash">—</span>
+        <input
+          type="number"
+          placeholder="Max"
+          [ngModel]="getBound(field.name, 'max')"
+          (ngModelChange)="onRangeChange(field.name, 'max', $event)"
+        >
+      </div>
+    </div>
+  </div>
+
+  <div class="filter-section" *ngIf="stringFields.length">
+    <p class="filter-heading">Category filters</p>
+    <details class="category-filter" *ngFor="let field of stringFields">
+      <summary>
+        {{ field.name }}
+        <span class="count-badge">{{ getValues(field.name).length }}</span>
+      </summary>
+      <div class="chip-row">
+        <button
+          type="button"
+          class="chip"
+          *ngFor="let value of getValues(field.name)"
+          [class.active]="isValueSelected(field.name, value)"
+          (click)="toggleValue(field.name, value)"
+        >
+          {{ value }}
+        </button>
+      </div>
+    </details>
+  </div>
+
+  <p class="helper-text" *ngIf="!numberFields.length && !stringFields.length">
+    Import a dataset to configure filters.
+  </p>
+</article>

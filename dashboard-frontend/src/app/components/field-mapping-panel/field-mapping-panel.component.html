@@ -1,0 +1,76 @@
+<article class="panel mapping-panel">
+  <div class="panel-head">
+    <p class="section-title">Field Mapping</p>
+    <h2>Map Dataset Fields</h2>
+  </div>
+
+  <p class="helper-text" *ngIf="!datasetSelected">Select a dataset to configure mappings.</p>
+  <p class="helper-text" *ngIf="datasetSelected && !selectedComponent">Choose a component to generate mapping controls.</p>
+
+  <div class="mapping-list" *ngIf="datasetSelected && selectedComponent">
+    <div class="mapping-item" *ngFor="let mappingConfig of selectedComponent.requiredMappings">
+      <div class="mapping-head">
+        <label [for]="'mapping-' + mappingConfig.key">{{ mappingConfig.label }}</label>
+        <span class="required-tag" *ngIf="mappingConfig.required">Required</span>
+      </div>
+
+      <ng-container *ngIf="!mappingConfig.multiple; else multipleMapping">
+        <select
+          [id]="'mapping-' + mappingConfig.key"
+          [ngModel]="getSingleMappingValue(mappingConfig.key)"
+          (ngModelChange)="onSingleMappingChange(mappingConfig.key, $event)"
+        >
+          <option value="">Select field</option>
+          <option
+            *ngFor="let field of fields"
+            [value]="field.name"
+            [disabled]="!isFieldCompatible(mappingConfig, field)"
+          >
+            {{ field.name }} ({{ field.type }})
+          </option>
+        </select>
+
+        <p class="helper-text" *ngIf="getFieldsForMapping(mappingConfig).length === 0">
+          No compatible fields available for this mapping.
+        </p>
+      </ng-container>
+
+      <ng-template #multipleMapping>
+        <div class="checkbox-grid" *ngIf="fields.length; else noFields">
+          <label
+            class="checkbox-item"
+            *ngFor="let field of fields"
+            [class.incompatible]="!isFieldCompatible(mappingConfig, field)"
+          >
+            <input
+              type="checkbox"
+              [checked]="isFieldSelected(mappingConfig.key, field.name)"
+              [disabled]="!isFieldCompatible(mappingConfig, field)"
+              (change)="onToggleMultiField(mappingConfig.key, field.name, $any($event.target).checked)"
+            >
+            {{ field.name }}
+            <span class="field-type">{{ field.type }}</span>
+          </label>
+        </div>
+      </ng-template>
+
+      <ng-template #noFields>
+        <p class="helper-text">No fields available.</p>
+      </ng-template>
+    </div>
+
+    <div class="mapping-item" *ngIf="selectedComponent.id === 'kpiCard'">
+      <div class="mapping-head">
+        <label for="kpi-aggregation">Aggregation</label>
+      </div>
+      <select id="kpi-aggregation" [ngModel]="kpiAggregation" (ngModelChange)="onAggregationChange($event)">
+        <option *ngFor="let agg of kpiAggregations" [value]="agg">{{ agg }}</option>
+      </select>
+      <p class="helper-text">COUNT can work without metric field. Other aggregations require a numeric metric field.</p>
+    </div>
+
+    <ul class="validation-list" *ngIf="validationMessages.length">
+      <li *ngFor="let message of validationMessages">{{ message }}</li>
+    </ul>
+  </div>
+</article>

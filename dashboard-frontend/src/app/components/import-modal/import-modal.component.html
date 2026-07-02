@@ -1,0 +1,40 @@
+<div class="modal-backdrop" *ngIf="open" (click)="close()">
+  <div class="modal-card" (click)="$event.stopPropagation()">
+    <div class="modal-head">
+      <div>
+        <p class="section-title">Data Sources</p>
+        <h2>Import a dataset</h2>
+        <p class="helper-text">Choose a predefined source. Its columns load into the sidebar once imported.</p>
+      </div>
+      <button type="button" class="icon-btn" (click)="close()" aria-label="Close">✕</button>
+    </div>
+
+    <div class="dataset-grid">
+      <button
+        type="button"
+        class="dataset-card"
+        *ngFor="let dataset of datasets"
+        [class.active]="selectedId === dataset.id"
+        (click)="select(dataset.id)"
+      >
+        <div class="dataset-card-top">
+          <span class="dataset-avatar">{{ dataset.name.charAt(0) }}</span>
+          <span class="check" *ngIf="selectedId === dataset.id">✓</span>
+        </div>
+        <h3>{{ dataset.name }}</h3>
+        <p class="helper-text">{{ dataset.description }}</p>
+        <div class="dataset-meta">
+          <span>{{ dataset.rows.length }} rows</span>
+          <span>{{ fieldCount(dataset) }} columns</span>
+        </div>
+      </button>
+    </div>
+
+    <div class="modal-actions">
+      <button type="button" class="btn ghost" (click)="close()">Cancel</button>
+      <button type="button" class="btn primary" [disabled]="!selectedId" (click)="confirm()">
+        Import dataset
+      </button>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,104 @@
+:root {
+  --bg: #eef1fb;
+  --surface: #ffffff;
+  --surface-soft: #f4f6ff;
+  --text: #1b2145;
+  --muted: #6b73a0;
+  --border: #e3e7f5;
+  --shadow: 0 14px 34px rgba(40, 44, 93, 0.09);
+  --brand-1: #6366f1;
+  --brand-2: #ec4899;
+  --accent: #6366f1;
+  --success: #14b8a6;
+  --danger: #ef4444;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  font-family: 'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif;
+  background: radial-gradient(circle at 12% 0%, #f4f6ff 0%, #eef1fb 42%, #e6eaf8 100%);
+  color: var(--text);
+  overflow: hidden;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+
+.section-title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.helper-text {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.validation-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--danger);
+  font-size: 0.87rem;
+}
+
+.type-badge {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.type-number {
+  background: #d9ebff;
+  color: #12528f;
+}
+
+.type-string {
+  background: #d8f4ec;
+  color: #176955;
+}
+
+.type-boolean {
+  background: #eee0ff;
+  color: #56338d;
+}
+
+.type-unknown {
+  background: #eaedf4;
+  color: #4d5e80;
+}
+
+@media (max-width: 960px) {
+  .type-badge {
+    font-size: 0.7rem;
+  }
+}

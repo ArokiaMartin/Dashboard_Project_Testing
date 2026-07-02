@@ -1,0 +1,10 @@
+.chart-host {
+  width: 100%;
+  height: 420px;
+}
+
+@media (max-width: 640px) {
+  .chart-host {
+    height: 300px;
+  }
+}
