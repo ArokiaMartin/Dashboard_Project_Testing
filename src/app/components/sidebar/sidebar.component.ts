@@ -7,46 +7,59 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
   standalone: true,
   imports: [CommonModule, RouterLink, RouterLinkActive],
   template: `
-    <div class="sidebar">
+    <div class="sidebar" [class.collapsed]="collapsed">
       <div class="logo-section">
-        <img class="brand-logo" src="assets/hyland-logo.webp" alt="Hyland" />
-        <p class="subtitle">Analytics Suite</p>
+        <img class="brand-logo" src="assets/hyland-logo.jpg" alt="Hyland" *ngIf="!collapsed" />
+        <img class="logo-mark-img" src="assets/logo-mark.jpg" alt="Hyland" *ngIf="collapsed" />
       </div>
+      <p class="subtitle" *ngIf="!collapsed">Analytics Suite</p>
 
       <nav class="menu">
-        <a routerLink="/home" routerLinkActive="active" class="menu-item">
+        <a routerLink="/home" routerLinkActive="active" class="menu-item" [title]="collapsed ? 'Home' : ''">
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-          <span>Home</span>
+          <span *ngIf="!collapsed">Home</span>
         </a>
-        <a routerLink="/reports" routerLinkActive="active" class="menu-item">
-          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-          <span>Reports</span>
+        <a routerLink="/data" routerLinkActive="active" class="menu-item" [title]="collapsed ? 'Uploaded Data' : ''">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+          <span *ngIf="!collapsed">Uploaded Data</span>
         </a>
-        <a routerLink="/builder" routerLinkActive="active" class="menu-item">
+        <a routerLink="/builder" routerLinkActive="active" class="menu-item" [title]="collapsed ? 'Dashboard Builder' : ''">
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
-          <span>Dashboard Builder</span>
+          <span *ngIf="!collapsed">Dashboard Builder</span>
         </a>
-        <a routerLink="/dashboards" routerLinkActive="active" class="menu-item">
+        <a routerLink="/dashboards" routerLinkActive="active" class="menu-item" [title]="collapsed ? 'My Dashboards' : ''">
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
-          <span>My Dashboards</span>
+          <span *ngIf="!collapsed">My Dashboards</span>
         </a>
-        <a routerLink="/saved" routerLinkActive="active" class="menu-item">
+        <a routerLink="/reports" routerLinkActive="active" class="menu-item" [title]="collapsed ? 'Reports' : ''">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+          <span *ngIf="!collapsed">Reports</span>
+        </a>
+        <a routerLink="/saved" routerLinkActive="active" class="menu-item" [title]="collapsed ? 'Saved Reports' : ''">
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 10.26 24 10.27 17.18 16.7 20.09 24.96 12 18.54 3.91 24.96 6.82 16.7 0 10.27 8.91 10.26 12 2"/></svg>
-          <span>Saved Reports</span>
+          <span *ngIf="!collapsed">Saved Reports</span>
         </a>
       </nav>
 
-      <div class="settings-section">
-        <a routerLink="/settings" routerLinkActive="active" class="menu-item">
+      <div class="settings-section" [class.collapsed]="collapsed">
+        <a routerLink="/settings" routerLinkActive="active" class="menu-item" [title]="collapsed ? 'Settings' : ''">
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          <span>Settings</span>
+          <span *ngIf="!collapsed">Settings</span>
         </a>
+        <button class="collapse-btn" (click)="collapsed = !collapsed" [title]="collapsed ? 'Expand sidebar' : 'Collapse sidebar'">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="4" width="18" height="16" rx="2"/>
+            <line x1="9" y1="4" x2="9" y2="20"/>
+            <polyline *ngIf="!collapsed" points="15 9 12.5 12 15 15"/>
+            <polyline *ngIf="collapsed" points="13 9 15.5 12 13 15"/>
+          </svg>
+        </button>
       </div>
     </div>
   `,
   styles: [`
     .sidebar {
-      width: 250px;
+      width: 210px;
       background: white;
       border-right: 1px solid #e8ebf2;
       padding: 22px 0;
@@ -54,16 +67,28 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
       flex-direction: column;
       height: 100vh;
       overflow-y: auto;
+      overflow-x: hidden;
       flex-shrink: 0;
+      transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
     }
+    .sidebar.collapsed { width: 74px; }
 
     .logo-section {
-      padding: 0 22px 22px;
-      border-bottom: 1px solid #eef1f6;
-      margin-bottom: 10px;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0 18px 8px; min-height: 40px;
     }
-    .brand-logo { width: 150px; max-width: 100%; height: auto; display: block; }
-    .subtitle { margin: 10px 0 0; font-size: 12px; color: #94a3b8; font-weight: 500; }
+    .brand-logo { width: 140px; max-width: 100%; height: auto; display: block; margin-right: auto; }
+    .logo-mark-img {
+      width: 42px; height: 42px; border-radius: 10px;
+      object-fit: contain; display: block;
+    }
+
+    .subtitle {
+      margin: 0 0 14px; padding: 0 20px 16px;
+      font-size: 12px; color: #94a3b8; font-weight: 500;
+      border-bottom: 1px solid #eef1f6;
+    }
+    .sidebar.collapsed .logo-section { border-bottom: 1px solid #eef1f6; padding-bottom: 16px; margin-bottom: 8px; }
 
     .menu { flex: 1; padding: 6px 12px; display: flex; flex-direction: column; gap: 2px; }
 
@@ -71,13 +96,32 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
       display: flex; align-items: center; gap: 12px;
       padding: 11px 14px; color: #64748b; text-decoration: none;
       font-size: 14px; font-weight: 600; border-radius: 10px;
-      transition: all 0.16s ease; cursor: pointer;
+      transition: background 0.16s ease, color 0.16s ease; cursor: pointer;
+      white-space: nowrap;
     }
     .menu-item svg { flex-shrink: 0; }
     .menu-item:hover { background: #f4f6fb; color: #2563eb; }
     .menu-item.active { background: #eff6ff; color: #2563eb; }
+    .sidebar.collapsed .menu-item { justify-content: center; padding: 11px 0; }
 
-    .settings-section { border-top: 1px solid #eef1f6; padding: 12px; margin-top: 8px; }
+    .settings-section {
+      border-top: 1px solid #eef1f6; padding: 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .settings-section .menu-item { flex: 1; }
+    .settings-section.collapsed { flex-direction: column; gap: 6px; }
+
+    .collapse-btn {
+      width: 34px; height: 34px; flex-shrink: 0;
+      border: 1px solid #e8ebf2; background: white; border-radius: 9px;
+      color: #64748b; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s ease;
+    }
+    .collapse-btn:hover { border-color: #bfdbfe; color: #2563eb; background: #eff6ff; }
+    .settings-section.collapsed .collapse-btn { width: 40px; }
   `]
 })
-export class SidebarComponent {}
+export class SidebarComponent {
+  collapsed = false;
+}
