@@ -1,0 +1,170 @@
+<div class="stack-chart-container">
+  <div class="stack-chart-header">
+    <div class="header-text">
+      <h2>Stack Chart</h2>
+      <span class="header-sub">Dimension + Measures + Filters → backend config</span>
+    </div>
+    <button class="btn-reset" (click)="resetChart()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+      Reset
+    </button>
+  </div>
+
+  <!-- Configuration Section -->
+  <div class="config-section">
+    <div class="config-row">
+      <div class="form-group">
+        <label>Dataset</label>
+        <select [(ngModel)]="selectedDataset" (change)="onDatasetChange(selectedDataset)" class="form-control">
+          <option value="">Select Dataset</option>
+          <option *ngFor="let dataset of availableDatasets" [value]="dataset">{{ dataset }}</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Dimension (X-axis)</label>
+        <select [(ngModel)]="selectedDimension" (change)="onDimensionChange(selectedDimension)" class="form-control">
+          <option value="">Select Dimension</option>
+          <option *ngFor="let dim of availableDimensions" [value]="dim.name">{{ dim.displayName }}</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Break Down By (optional)</label>
+        <select [(ngModel)]="selectedBreakdownDimension" (change)="onBreakdownDimensionChange(selectedBreakdownDimension)" class="form-control">
+          <option value="">None</option>
+          <option *ngFor="let dim of availableBreakdownDimensions" [value]="dim.name">{{ dim.displayName }}</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Stack Mode</label>
+        <select [(ngModel)]="stackMode" (change)="onStackModeChange(stackMode)" class="form-control">
+          <option value="normal">Normal (Stacked)</option>
+          <option value="percent">Percent (100%)</option>
+          <option value="grouped">Grouped (Side-by-side)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Orientation</label>
+        <select [(ngModel)]="stackOrientation" (change)="onOrientationChange(stackOrientation)" class="form-control">
+          <option value="vertical">Vertical (Bars)</option>
+          <option value="horizontal">Horizontal (Columns)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="config-row two-col">
+      <!-- Measures Selection -->
+      <div class="form-group">
+        <label>
+          {{ selectedBreakdownDimension ? 'Measure (single — stacking by ' + getFieldDisplayName(selectedBreakdownDimension) + ')' : 'Measures' }}
+        </label>
+        <select #measureSelect (change)="addMeasure(measureSelect.value); measureSelect.value = ''" class="form-control">
+          <option value="">{{ selectedBreakdownDimension ? 'Select Measure' : '+ Add Measure' }}</option>
+          <option *ngFor="let measure of availableMeasures" [value]="measure.name"
+            [disabled]="!selectedBreakdownDimension && selectedMeasures.includes(measure.name)">
+            {{ measure.displayName }}
+          </option>
+        </select>
+        <div class="chip-row">
+          <span *ngIf="selectedMeasures.length === 0" class="empty-state">No measures selected</span>
+          <div *ngFor="let measure of selectedMeasures" class="chip chip-measure">
+            <span>{{ measure }}</span>
+            <button class="chip-remove" (click)="removeMeasure(measure)">×</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filters Section -->
+      <div class="form-group">
+        <label>Filters (Optional)</label>
+        <div class="filter-inputs">
+          <select [(ngModel)]="newFilter.field" class="form-control">
+            <option value="">Field</option>
+            <option *ngFor="let field of availableFilterFields" [value]="field.name">{{ field.displayName }}</option>
+          </select>
+          <select [(ngModel)]="newFilter.operator" class="form-control operator">
+            <option *ngFor="let op of getFilterOperatorsForField(newFilter.field)" [value]="op">{{ op }}</option>
+          </select>
+          <input type="text" [(ngModel)]="newFilter.value" placeholder="Value" class="form-control">
+          <button class="btn-add" (click)="addFilter()">+ Add</button>
+        </div>
+        <div class="chip-row">
+          <span *ngIf="selectedFilters.length === 0" class="empty-state">No filters applied</span>
+          <div *ngFor="let filter of selectedFilters; let i = index" class="chip chip-filter">
+            <span>{{ getFieldDisplayName(filter.field) }} {{ filter.operator }} {{ filter.value }}</span>
+            <button class="chip-remove" (click)="removeFilter(i)">×</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error Message -->
+  <div *ngIf="chartError" class="error-message">
+    <span class="icon">⚠</span>
+    {{ chartError }}
+  </div>
+
+  <!-- Loading Indicator -->
+  <div *ngIf="chartLoading" class="loading-indicator">
+    <div class="spinner"></div>
+    <p>Loading chart data...</p>
+  </div>
+
+  <!-- Chart Display Section -->
+  <div *ngIf="chartReady && chartData" class="chart-section">
+    <div class="chart-info">
+      <h3>
+        {{ selectedDimension }}<span *ngIf="selectedBreakdownDimension"> by {{ selectedBreakdownDimension }}</span>
+        — {{ stackMode | titlecase }} Stack
+        <span *ngIf="selectedBreakdownDimension" class="chart-measure-note">({{ selectedMeasures[0] }})</span>
+      </h3>
+      <p class="chart-metadata">
+        {{ chartData.metadata.totalRecords }} records · updated {{ chartData.metadata.lastUpdated | date:'short' }}
+      </p>
+    </div>
+
+    <!-- Real Chart.js canvas (dummy data, ready to swap to live API) -->
+    <div class="chart-visual-card">
+      <div class="chart-canvas-wrap">
+        <canvas #stackCanvas></canvas>
+      </div>
+    </div>
+
+    <!-- Collapsible: Backend Config -->
+    <details class="collapsible">
+      <summary>Backend Config (JSON) — send this to the API</summary>
+      <pre><code>{{ chartConfig | json }}</code></pre>
+    </details>
+
+    <!-- Collapsible: Raw Data Table -->
+    <details class="collapsible">
+      <summary>Raw Chart Data ({{ chartData.data.length }} rows)</summary>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th *ngFor="let key of chartData.data[0] | keyvalue">{{ key.key }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let row of chartData.data">
+              <td *ngFor="let key of row | keyvalue">{{ key.value }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+
+  <!-- Initial State -->
+  <div *ngIf="!chartReady && !chartLoading && !chartError" class="initial-state">
+    <div class="empty-placeholder">
+      <span class="icon">📊</span>
+      <p>Select options above to generate your stack chart</p>
+    </div>
+  </div>
+</div>

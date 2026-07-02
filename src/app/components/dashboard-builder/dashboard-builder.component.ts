@@ -2,6 +2,7 @@ import { Component, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { Chart, registerables } from 'chart.js';
+import { StackChartComponent } from '../stack-chart/stack-chart.component';
 
 Chart.register(...registerables);
 
@@ -13,7 +14,7 @@ interface Slot { key: string; label: string; role: 'dimension' | 'measure'; }
 @Component({
   selector: 'app-dashboard-builder',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, RouterLink, StackChartComponent],
   template: `
     <div class="builder">
       <!-- Toolbar -->
@@ -59,8 +60,8 @@ interface Slot { key: string; label: string; role: 'dimension' | 'measure'; }
 
         <!-- CENTER -->
         <section class="center">
-          <!-- Filters -->
-          <div class="filters-bar">
+          <!-- Filters (not shown for Stack Chart - it has its own filter builder) -->
+          <div class="filters-bar" *ngIf="selectedViz !== 'stack'">
             <div class="fb-head">
               <span class="fb-title">Filters</span>
               <button class="add-filter">+ Add Filter</button>
@@ -74,8 +75,8 @@ interface Slot { key: string; label: string; role: 'dimension' | 'measure'; }
           </div>
 
           <!-- Configure card -->
-          <div class="config-card">
-            <div class="cfg-head">
+          <div class="config-card" [class.stack-mode]="selectedViz === 'stack'">
+            <div class="cfg-head" *ngIf="selectedViz !== 'stack'">
               <div class="cfg-title">
                 <span class="cfg-badge">{{ vizLabel() }}</span>
                 <input class="cfg-name" [value]="widgetName" (input)="widgetName = $any($event.target).value" />
@@ -84,8 +85,8 @@ interface Slot { key: string; label: string; role: 'dimension' | 'measure'; }
               <span class="cfg-ready" *ngIf="isConfigured()">● Live</span>
             </div>
 
-            <!-- Axis slots -->
-            <div class="slots">
+            <!-- Axis slots (hidden for Stack Chart) -->
+            <div class="slots" *ngIf="selectedViz !== 'stack'">
               <div class="slot" *ngFor="let s of currentSlots()">
                 <label>{{ s.label }}</label>
                 <button class="slot-btn" [class.filled]="config[s.key]" (click)="toggleSlot(s.key)">
@@ -112,7 +113,7 @@ interface Slot { key: string; label: string; role: 'dimension' | 'measure'; }
             <!-- Preview -->
             <div class="preview">
               <!-- placeholder -->
-              <div class="ph" *ngIf="!isConfigured()">
+              <div class="ph" *ngIf="!isConfigured() && selectedViz !== 'stack'">
                 <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
                 <p>Pick <b>{{ missingSlotLabels() }}</b> to render the chart</p>
               </div>
@@ -139,6 +140,11 @@ interface Slot { key: string; label: string; role: 'dimension' | 'measure'; }
                     </tr>
                   </tbody>
                 </table>
+              </div>
+
+              <!-- Stack Chart -->
+              <div *ngIf="selectedViz === 'stack'" style="width: 100%; height: 100%;">
+                <app-stack-chart></app-stack-chart>
               </div>
             </div>
           </div>
@@ -215,6 +221,8 @@ interface Slot { key: string; label: string; role: 'dimension' | 'measure'; }
     .frag-x { width: 32px; height: 36px; border: 1px solid #e2e8f0; background: white; border-radius: 8px; color: #94a3b8; cursor: pointer; font-size: 11px; }
 
     .config-card { background: white; border: 1px solid #e8ebf2; border-radius: 12px; padding: 20px; }
+    .config-card.stack-mode { padding: 0; border: none; background: transparent; }
+    .config-card.stack-mode .preview { border: none; background: transparent; min-height: auto; display: block; padding: 0; }
     .cfg-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
     .cfg-title { display: flex; align-items: center; gap: 10px; }
     .cfg-badge { background: #eff6ff; color: #2563eb; font-size: 10.5px; font-weight: 700; padding: 4px 9px; border-radius: 6px; letter-spacing: 0.3px; }
@@ -323,6 +331,7 @@ export class DashboardBuilderComponent {
     { key: 'kpi', label: 'KPI', icon: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>` },
     { key: 'table', label: 'TABLE', icon: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="12" y1="3" x2="12" y2="21"/></svg>` },
     { key: 'bar', label: 'BAR CHART', icon: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>` },
+    { key: 'stack', label: 'STACK CHART', icon: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="12" width="3" height="9"/><rect x="9" y="6" width="3" height="15"/><rect x="15" y="9" width="3" height="12"/></svg>` },
     { key: 'area', label: 'AREA', icon: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 15l5-6 4 3 5-7 4 5v8H3z"/></svg>` },
     { key: 'donut', label: 'DONUT', icon: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/></svg>` },
     { key: 'pie', label: 'PIE CHART', icon: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v9h9"/><circle cx="12" cy="12" r="9"/></svg>` },
@@ -333,6 +342,7 @@ export class DashboardBuilderComponent {
     kpi: [{ key: 'metric', label: 'METRIC', role: 'measure' }],
     table: [{ key: 'group', label: 'GROUP BY', role: 'dimension' }],
     bar: [{ key: 'x', label: 'X-AXIS', role: 'dimension' }, { key: 'y', label: 'Y-AXIS', role: 'measure' }],
+    stack: [{ key: 'x', label: 'DIMENSION', role: 'dimension' }, { key: 'y', label: 'MEASURES', role: 'measure' }],
     area: [{ key: 'x', label: 'X-AXIS', role: 'dimension' }, { key: 'y', label: 'Y-AXIS', role: 'measure' }],
     line: [{ key: 'x', label: 'X-AXIS', role: 'dimension' }, { key: 'y', label: 'Y-AXIS', role: 'measure' }],
     donut: [{ key: 'cat', label: 'CATEGORY', role: 'dimension' }, { key: 'val', label: 'VALUE', role: 'measure' }],
@@ -410,7 +420,7 @@ export class DashboardBuilderComponent {
   private destroyChart() { if (this.chart) { this.chart.destroy(); this.chart = undefined; } }
 
   private renderChart() {
-    if (!this._canvas || !this.isChartViz() || !this.isConfigured()) return;
+    if (!this._canvas || !this.isChartViz() || !this.isConfigured() || this.selectedViz === 'stack') return;
     this.destroyChart();
 
     const dimKey = this.selectedViz === 'donut' || this.selectedViz === 'pie' ? 'cat' : 'x';
