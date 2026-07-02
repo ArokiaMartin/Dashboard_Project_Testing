@@ -1,11 +1,20 @@
 package com.example.dashboard_backend;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import java.util.*;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.*;
+
 @RestController
+@CrossOrigin(origins = "*")
 public class QueryController {
+
+    private final JdbcTemplate jdbcTemplate;
+
+    public QueryController(JdbcTemplate jdbcTemplate) {
+        this.jdbcTemplate = jdbcTemplate;
+    }
 
     public static String generateSql(JsonNode config) {
 
@@ -14,7 +23,7 @@ public class QueryController {
         List<String> selectParts = new ArrayList<>();
         List<String> groupByParts = new ArrayList<>();
 
-        // 1. dimensions
+        // 1. Dimensions
         JsonNode dimensions = config.get("dimensions");
 
         if (dimensions != null && dimensions.isArray()) {
@@ -26,7 +35,7 @@ public class QueryController {
             }
         }
 
-        // 2. measures
+        // 2. Measures
         JsonNode measures = config.get("measures");
 
         if (measures != null && measures.isArray()) {
@@ -42,15 +51,19 @@ public class QueryController {
 
         StringBuilder sql = new StringBuilder();
 
-        // 3. SELECT
-        sql.append("SELECT ");
-        sql.append(String.join(", ", selectParts));
+        // If no dimensions or measures are given
+        if (selectParts.isEmpty()) {
+            sql.append("SELECT *");
+        } else {
+            sql.append("SELECT ");
+            sql.append(String.join(", ", selectParts));
+        }
 
-        // 4. FROM
+        // 3. FROM
         sql.append(" FROM ");
         sql.append(dataset);
 
-        // 5. WHERE filters
+        // 4. WHERE filters
         JsonNode filters = config.get("filters");
 
         if (filters != null && filters.has("rules")) {
@@ -71,7 +84,7 @@ public class QueryController {
                     List<String> values = new ArrayList<>();
 
                     for (JsonNode value : rule.get("values")) {
-                        values.add("'" + value.asText() + "'");
+                        values.add(formatValue(value));
                     }
 
                     whereParts.add(field + " IN (" + String.join(", ", values) + ")");
@@ -86,14 +99,7 @@ public class QueryController {
                 } else {
 
                     JsonNode valueNode = rule.get("value");
-
-                    String value;
-
-                    if (valueNode.isNumber()) {
-                        value = valueNode.asText();
-                    } else {
-                        value = "'" + valueNode.asText() + "'";
-                    }
+                    String value = formatValue(valueNode);
 
                     whereParts.add(field + " " + operator + " " + value);
                 }
@@ -105,13 +111,13 @@ public class QueryController {
             }
         }
 
-        // 6. GROUP BY
-        if (!groupByParts.isEmpty() && measures != null && measures.isArray()) {
+        // 5. GROUP BY
+        if (!groupByParts.isEmpty() && measures != null && measures.isArray() && measures.size() > 0) {
             sql.append(" GROUP BY ");
             sql.append(String.join(", ", groupByParts));
         }
 
-        // 7. HAVING
+        // 6. HAVING
         JsonNode having = config.get("having");
 
         if (having != null && having.isArray()) {
@@ -122,13 +128,7 @@ public class QueryController {
                 String operator = cleanOperator(rule.get("operator").asText());
                 JsonNode valueNode = rule.get("value");
 
-                String value;
-
-                if (valueNode.isNumber()) {
-                    value = valueNode.asText();
-                } else {
-                    value = "'" + valueNode.asText() + "'";
-                }
+                String value = formatValue(valueNode);
 
                 havingParts.add(measure + " " + operator + " " + value);
             }
@@ -139,7 +139,7 @@ public class QueryController {
             }
         }
 
-        // 8. ORDER BY
+        // 7. ORDER BY
         JsonNode sorting = config.get("sorting");
 
         if (sorting != null && sorting.isArray()) {
@@ -158,12 +158,12 @@ public class QueryController {
             }
         }
 
-        // 9. Pagination
+        // 8. Pagination
         JsonNode pagination = config.get("pagination");
 
         if (pagination != null) {
-            int top = pagination.get("top").asInt();
-            int offset = pagination.get("offset").asInt();
+            int top = pagination.has("top") ? pagination.get("top").asInt() : 100;
+            int offset = pagination.has("offset") ? pagination.get("offset").asInt() : 0;
 
             sql.append(" LIMIT ");
             sql.append(top);
@@ -175,23 +175,42 @@ public class QueryController {
         return sql.toString();
     }
 
+    private static String formatValue(JsonNode valueNode) {
+        if (valueNode.isNumber() || valueNode.isBoolean()) {
+            return valueNode.asText();
+        }
+
+        return "'" + valueNode.asText().replace("'", "''") + "'";
+    }
+
     private static String cleanOperator(String operator) {
-        return operator
-                .replace("&gt;", ">")
-                .replace("&lt;", "<")
-                .replace("&gt;=", ">=")
-                .replace("&lt;=", "<=");
+        return switch (operator.toUpperCase()) {
+            case "=", "!=", "<>", ">", "<", ">=", "<=", "IN", "BETWEEN", "LIKE" -> operator.toUpperCase();
+            default -> throw new IllegalArgumentException("Invalid operator: " + operator);
+        };
     }
 
     @PostMapping("/generate-query")
-    public Map<String, String> generateQuery(
-            @RequestBody JsonNode config) {
+    public Map<String, String> generateQuery(@RequestBody JsonNode config) {
 
         String sql = generateSql(config);
 
         return Map.of(
-                "generatedSql",
-                sql);
+                "generatedSql", sql
+        );
     }
 
+    @PostMapping("/execute-query")
+    public Map<String, Object> executeQuery(@RequestBody JsonNode config) {
+        System.out.println("Received config: " + config.toString());
+        String sql = generateSql(config);
+
+        List<Map<String, Object>> result = jdbcTemplate.queryForList(sql);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("generatedSql", sql);
+        response.put("data", result);
+
+        return response;
+    }
 }
