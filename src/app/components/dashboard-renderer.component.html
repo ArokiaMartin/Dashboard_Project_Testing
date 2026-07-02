@@ -1,0 +1,94 @@
+<div class="dashboard-renderer-container">
+  <div class="dashboard-header mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div>
+        <h3 class="mb-1">{{ dashboard.name }}</h3>
+        <p *ngIf="dashboard.description" class="text-muted mb-0">
+          {{ dashboard.description }}
+        </p>
+      </div>
+      <div class="btn-group">
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-primary"
+          (click)="refreshDashboard()"
+          title="Refresh all widgets"
+        >
+          <i class="bi bi-arrow-clockwise"></i>
+          Refresh
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-secondary"
+          (click)="exportDashboard()"
+          title="Export dashboard"
+        >
+          <i class="bi bi-download"></i>
+          Export
+        </button>
+      </div>
+    </div>
+
+    <div class="alert alert-info">
+      <small>
+        <strong>Schema:</strong> {{ dashboard.schema.name }} |
+        <strong>Columns:</strong> {{ dashboard.schema.columns.length }} |
+        <strong>Widgets:</strong> {{ dashboard.widgets.length }}
+      </small>
+    </div>
+  </div>
+
+  <!-- Loading State -->
+  <div *ngIf="isLoading" class="text-center py-5">
+    <div class="spinner-border"></div>
+    <p class="mt-3 text-muted">Loading dashboard data...</p>
+  </div>
+
+  <!-- Widgets Grid -->
+  <div *ngIf="!isLoading && dashboard.widgets.length > 0" class="row">
+    <ng-container *ngFor="let widget of dashboard.widgets">
+      <div [class]="'widget-wrapper ' + getGridClass(widget)">
+        <!-- Bar Chart Widget -->
+        <app-bar-chart-widget
+          *ngIf="widget.type === 'chart' && (widget.config | json) | slice : 0 : 7 === 'type':'bar'"
+          [widget]="widget"
+          [data]="getWidgetData(widget.id)"
+        ></app-bar-chart-widget>
+
+        <!-- Line Chart Widget -->
+        <app-line-chart-widget
+          *ngIf="widget.type === 'chart' && (widget.config | json) | slice : 0 : 7 === 'type':'lin'"
+          [widget]="widget"
+          [data]="getWidgetData(widget.id)"
+        ></app-line-chart-widget>
+
+        <!-- Pie Chart Widget -->
+        <app-pie-chart-widget
+          *ngIf="widget.type === 'chart' && (widget.config | json) | slice : 0 : 7 === 'type':'pie'"
+          [widget]="widget"
+          [data]="getWidgetData(widget.id)"
+        ></app-pie-chart-widget>
+
+        <!-- Table Widget -->
+        <app-table-widget
+          *ngIf="widget.type === 'table'"
+          [widget]="widget"
+          [data]="getWidgetData(widget.id)"
+        ></app-table-widget>
+
+        <!-- KPI Widget -->
+        <app-kpi-widget
+          *ngIf="widget.type === 'kpi'"
+          [widget]="widget"
+          [data]="getWidgetData(widget.id)"
+        ></app-kpi-widget>
+      </div>
+    </ng-container>
+  </div>
+
+  <!-- Empty State -->
+  <div *ngIf="!isLoading && dashboard.widgets.length === 0" class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle"></i>
+    No widgets configured for this dashboard. Add widgets to get started.
+  </div>
+</div>

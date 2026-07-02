@@ -1,0 +1,26 @@
+<div class="chart-widget-container">
+  <div class="card h-100">
+    <div class="card-header">
+      <h6 class="mb-0">
+        <i class="bi bi-graph-up"></i>
+        {{ widget.title }}
+      </h6>
+    </div>
+    <div class="card-body position-relative">
+      <div *ngIf="isLoading" class="loading-overlay">
+        <div class="spinner-border spinner-border-sm"></div>
+      </div>
+      <div *ngIf="chartData" class="chart-container">
+        <canvas
+          baseChart
+          type="line"
+          [data]="chartData"
+          [options]="chartOptions"
+        ></canvas>
+      </div>
+      <div *ngIf="!chartData" class="text-center p-4 text-muted">
+        No data available
+      </div>
+    </div>
+  </div>
+</div>

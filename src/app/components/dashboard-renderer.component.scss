@@ -1,0 +1,84 @@
+.dashboard-renderer-container {
+  .dashboard-header {
+    background-color: white;
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+
+    h3 {
+      color: #333;
+      margin-bottom: 0.5rem;
+      font-weight: 600;
+    }
+
+    .text-muted {
+      font-size: 0.875rem;
+      margin-bottom: 1rem;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 0.5rem;
+
+      .btn {
+        font-size: 0.875rem;
+
+        i {
+          margin-right: 0.5rem;
+        }
+      }
+    }
+
+    .alert {
+      margin-bottom: 0;
+      margin-top: 1rem;
+      border: none;
+      background-color: #e7f1ff;
+      color: #004085;
+
+      small {
+        font-size: 0.8rem;
+
+        strong {
+          font-weight: 600;
+        }
+      }
+    }
+  }
+
+  .row {
+    .widget-wrapper {
+      .card {
+        height: 100%;
+        transition: all 0.3s ease;
+
+        &:hover {
+          box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        }
+      }
+    }
+  }
+}
+
+@media (max-width: 768px) {
+  .dashboard-renderer-container {
+    .dashboard-header {
+      padding: 1rem;
+
+      h3 {
+        font-size: 1.5rem;
+      }
+
+      .btn-group {
+        flex-wrap: wrap;
+        width: 100%;
+        margin-top: 1rem;
+
+        .btn {
+          flex: 1;
+          min-width: 100px;
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,93 @@
+<div class="explorer-container">
+  <div class="row">
+    <!-- Schema Info -->
+    <div class="col-md-12 mb-3" *ngIf="schema">
+      <div class="alert alert-info">
+        <h5>{{ schema.name }}</h5>
+        <p class="mb-0">Total Columns: {{ schema.columns.length }}</p>
+      </div>
+    </div>
+
+    <!-- Dimensions Panel -->
+    <div class="col-md-6 mb-3">
+      <div class="card">
+        <div class="card-header bg-info text-white">
+          <h6 class="mb-0">Dimensions ({{ dimensions.length }})</h6>
+        </div>
+        <div class="card-body p-0">
+          <div *ngIf="isLoading" class="text-center p-3">
+            <div class="spinner-border spinner-border-sm"></div>
+          </div>
+          <div *ngIf="!isLoading && dimensions.length === 0" class="p-3 text-muted">
+            No dimensions found
+          </div>
+          <div *ngFor="let col of dimensions" class="list-group-item">
+            <div
+              class="column-item"
+              (click)="selectColumn(col)"
+              [class.selected]="selectedColumn?.name === col.name"
+            >
+              <i [class]="'bi ' + getColumnTypeIcon(col.type)"></i>
+              <span class="column-name">{{ col.name }}</span>
+              <span [class]="'badge ' + getColumnTypeBadge(col.type)">
+                {{ col.type }}
+              </span>
+            </div>
+            <div
+              *ngIf="selectedColumn?.name === col.name"
+              class="column-details p-2 bg-light"
+            >
+              <small *ngIf="col.description" class="text-muted">
+                {{ col.description }}
+              </small>
+              <small *ngIf="!col.description" class="text-muted italic">
+                No description available
+              </small>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Measures Panel -->
+    <div class="col-md-6 mb-3">
+      <div class="card">
+        <div class="card-header bg-success text-white">
+          <h6 class="mb-0">Measures ({{ measures.length }})</h6>
+        </div>
+        <div class="card-body p-0">
+          <div *ngIf="isLoading" class="text-center p-3">
+            <div class="spinner-border spinner-border-sm"></div>
+          </div>
+          <div *ngIf="!isLoading && measures.length === 0" class="p-3 text-muted">
+            No measures found
+          </div>
+          <div *ngFor="let col of measures" class="list-group-item">
+            <div
+              class="column-item"
+              (click)="selectColumn(col)"
+              [class.selected]="selectedColumn?.name === col.name"
+            >
+              <i [class]="'bi ' + getColumnTypeIcon(col.type)"></i>
+              <span class="column-name">{{ col.name }}</span>
+              <span [class]="'badge ' + getColumnTypeBadge(col.type)">
+                {{ col.type }}
+              </span>
+            </div>
+            <div
+              *ngIf="selectedColumn?.name === col.name"
+              class="column-details p-2 bg-light"
+            >
+              <small *ngIf="col.description" class="text-muted">
+                {{ col.description }}
+              </small>
+              <small *ngIf="!col.description" class="text-muted italic">
+                No description available
+              </small>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
