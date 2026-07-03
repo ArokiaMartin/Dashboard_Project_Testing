@@ -1,6 +1,13 @@
 package com.example.dashboard_backend;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.parameters.RequestBody;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 
@@ -8,6 +15,7 @@ import java.util.*;
 
 @RestController
 @CrossOrigin(origins = "*")
+@Tag(name = "Query API", description = "Endpoints for generating and executing SQL queries from a dashboard configuration")
 public class QueryController {
 
     private final JdbcTemplate jdbcTemplate;
@@ -190,8 +198,30 @@ public class QueryController {
         };
     }
 
+    @Operation(
+        summary = "Generate SQL from config",
+        description = "Accepts a dashboard query configuration (dimensions, measures, filters, sorting, pagination) and returns the generated SQL string without executing it.",
+        requestBody = @RequestBody(
+            required = true,
+            content = @Content(
+                mediaType = "application/json",
+                schema = @Schema(type = "object"),
+                examples = @ExampleObject(
+                    name = "Sample config",
+                    value = "{\"dataset\":\"orders\",\"dimensions\":[\"region\"],\"measures\":[{\"field\":\"revenue\",\"aggregation\":\"SUM\",\"alias\":\"total_revenue\"}],\"filters\":{\"condition\":\"AND\",\"rules\":[{\"field\":\"status\",\"operator\":\"IN\",\"values\":[\"completed\",\"shipped\"]}]},\"sorting\":[{\"field\":\"total_revenue\",\"direction\":\"DESC\"}],\"pagination\":{\"top\":50,\"offset\":0}}"
+                )
+            )
+        ),
+        responses = {
+            @ApiResponse(responseCode = "200", description = "Generated SQL returned successfully",
+                content = @Content(mediaType = "application/json",
+                    examples = @ExampleObject(value = "{\"generatedSql\":\"SELECT region, SUM(revenue) AS total_revenue FROM orders WHERE status IN ('completed', 'shipped') GROUP BY region ORDER BY total_revenue DESC LIMIT 50 OFFSET 0\"}")
+                )
+            )
+        }
+    )
     @PostMapping("/generate-query")
-    public Map<String, String> generateQuery(@RequestBody JsonNode config) {
+    public Map<String, String> generateQuery(@org.springframework.web.bind.annotation.RequestBody JsonNode config) {
 
         String sql = generateSql(config);
 
@@ -200,8 +230,30 @@ public class QueryController {
         );
     }
 
+    @Operation(
+        summary = "Execute SQL from config",
+        description = "Accepts a dashboard query configuration, generates the SQL, executes it against the database, and returns both the generated SQL and the query result rows.",
+        requestBody = @RequestBody(
+            required = true,
+            content = @Content(
+                mediaType = "application/json",
+                schema = @Schema(type = "object"),
+                examples = @ExampleObject(
+                    name = "Sample config",
+                    value = "{\"dataset\":\"orders\",\"dimensions\":[\"region\"],\"measures\":[{\"field\":\"revenue\",\"aggregation\":\"SUM\",\"alias\":\"total_revenue\"}],\"pagination\":{\"top\":10,\"offset\":0}}"
+                )
+            )
+        ),
+        responses = {
+            @ApiResponse(responseCode = "200", description = "Query executed successfully",
+                content = @Content(mediaType = "application/json",
+                    examples = @ExampleObject(value = "{\"generatedSql\":\"SELECT region, SUM(revenue) AS total_revenue FROM orders GROUP BY region LIMIT 10 OFFSET 0\",\"data\":[{\"region\":\"North\",\"total_revenue\":42000}]}")
+                )
+            )
+        }
+    )
     @PostMapping("/execute-query")
-    public Map<String, Object> executeQuery(@RequestBody JsonNode config) {
+    public Map<String, Object> executeQuery(@org.springframework.web.bind.annotation.RequestBody JsonNode config) {
         System.out.println("Received config: " + config.toString());
         String sql = generateSql(config);
 
