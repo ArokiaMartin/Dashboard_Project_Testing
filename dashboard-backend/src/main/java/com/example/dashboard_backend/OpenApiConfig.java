@@ -13,7 +13,7 @@ public class OpenApiConfig {
         return new OpenAPI()
                 .info(new Info()
                         .title("Dashboard Backend API")
-                        .description("REST API for generating and executing SQL queries from dashboard component configurations.")
+                        .description("REST API for dataset ingestion, upload analysis, and generating or executing SQL queries from dashboard component configurations.")
                         .version("1.0.0"));
     }
 }
