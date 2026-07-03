@@ -1,5 +1,6 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { UploadService } from '../../services/upload.service';
 
 interface DataTable {
   name: string;
@@ -19,7 +20,7 @@ interface DataTable {
         <div>
           <div class="crumbs">Data <span>/</span> <b>Uploaded Report</b></div>
           <h1>Uploaded Data</h1>
-          <p class="sub">Parsed from <b>report.json</b> — {{ tables.length }} tables auto-detected</p>
+          <p class="sub">Parsed from <b>{{ fileName }}</b> — {{ tables.length }} table{{ tables.length === 1 ? '' : 's' }} auto-detected</p>
         </div>
         <div class="head-actions">
           <button class="btn ghost">
@@ -227,8 +228,15 @@ export class DataExplorerComponent {
   ];
 
   visibleRows: any[][] = [];
+  fileName = 'sample_report.json';
 
-  constructor() { this.refresh(); }
+  constructor(private upload: UploadService) {
+    if (this.upload.hasData) {
+      this.tables = this.upload.tables as DataTable[];
+      this.fileName = this.upload.fileName;
+    }
+    this.refresh();
+  }
 
   active(): DataTable { return this.tables[this.selected]; }
   select(i: number) { this.selected = i; this.search = ''; this.refresh(); }

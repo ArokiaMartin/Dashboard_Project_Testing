@@ -4,24 +4,30 @@ import { Chart, registerables } from 'chart.js';
 
 Chart.register(...registerables);
 
+export interface Series { label: string; data: number[]; }
+
 export interface WidgetSpec {
   id: number;
   viz: string;
   title: string;
-  chartType: 'bar' | 'line' | 'doughnut' | 'pie' | 'radar' | 'polarArea' | null;
+  chartType: 'bar' | 'line' | 'doughnut' | 'pie' | 'radar' | 'polarArea' | 'scatter' | null;
   labels: string[];
-  data: number[];
+  datasets: Series[];
+  points?: { x: number; y: number }[];
   primary: string;
   fill: boolean;
   multiColor: boolean;
   radial: boolean;
   indexAxis: 'x' | 'y';
   showLegend: boolean;
+  stacked?: boolean;
   kpiTotal?: number;
   kpiLabel?: string;
   tableColumns?: string[];
-  tableRows?: any[][];
+  tableRows?: (string | number)[][];
 }
+
+const PALETTE = ['#2563eb', '#60a5fa', '#93c5fd', '#1e40af', '#64748b', '#cbd5e1'];
 
 @Component({
   selector: 'app-widget-tile',
@@ -84,33 +90,60 @@ export class WidgetTileComponent implements AfterViewInit, OnDestroy {
 
   private render() {
     if (!this.spec.chartType || !this.canvas) return;
-    const s = this.spec;
-    const multi = ['#2563eb', '#60a5fa', '#93c5fd', '#1e40af', '#64748b', '#cbd5e1'];
-    this.chart = new Chart(this.canvas.nativeElement.getContext('2d')!, {
-      type: s.chartType!,
-      data: {
-        labels: s.labels,
-        datasets: [{
-          label: s.kpiLabel || '',
-          data: s.data,
-          backgroundColor: s.multiColor ? multi : (s.chartType === 'radar' ? s.primary + '33' : s.fill ? s.primary + '22' : s.primary),
-          borderColor: s.primary,
-          borderWidth: s.multiColor ? 2 : (s.chartType === 'line' || s.chartType === 'radar' ? 2.5 : 0),
+    this.chart = new Chart(this.canvas.nativeElement.getContext('2d')!, buildChartConfig(this.spec, true));
+  }
+}
+
+/** Shared Chart.js config builder — used by tiles and the builder preview. */
+export function buildChartConfig(s: WidgetSpec, compact: boolean): any {
+  const fontSize = compact ? 10 : 11;
+  const pointSize = compact ? 3 : 4;
+  let data: any;
+
+  if (s.chartType === 'scatter') {
+    data = { datasets: [{ label: s.datasets[0]?.label ?? '', data: s.points ?? [], backgroundColor: s.primary, pointRadius: pointSize + 2 }] };
+  } else if (s.multiColor) {
+    // pie / doughnut / polar — one series, many colours
+    data = { labels: s.labels, datasets: [{ data: s.datasets[0]?.data ?? [], backgroundColor: PALETTE, borderColor: '#fff', borderWidth: 2 }] };
+  } else {
+    // bar / line / area / radar — one dataset per measure
+    data = {
+      labels: s.labels,
+      datasets: s.datasets.map((d, i) => {
+        const c = PALETTE[i % PALETTE.length];
+        return {
+          label: d.label,
+          data: d.data,
+          backgroundColor: s.fill ? c + '22' : c,
+          borderColor: c,
+          borderWidth: (s.chartType === 'line' || s.chartType === 'radar') ? 2.5 : 0,
           fill: s.fill,
           tension: 0.4,
-          pointRadius: (s.chartType === 'line' || s.chartType === 'radar') ? 3 : 0,
-          borderRadius: s.chartType === 'bar' ? 5 : 0
-        }]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        indexAxis: s.indexAxis,
-        plugins: { legend: { display: s.showLegend, position: 'bottom', labels: { usePointStyle: true, boxWidth: 7, font: { size: 10 } } } },
-        scales: (s.multiColor || s.radial) ? {} : {
-          y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 10 }, color: '#94a3b8' } },
-          x: { grid: { display: false }, ticks: { font: { size: 10 }, color: '#94a3b8' } }
-        }
-      }
-    });
+          pointRadius: (s.chartType === 'line' || s.chartType === 'radar') ? pointSize : 0,
+          borderRadius: s.chartType === 'bar' ? (compact ? 5 : 6) : 0
+        };
+      })
+    };
   }
+
+  const showLegend = s.multiColor || s.datasets.length > 1;
+  const cartesian = s.chartType === 'bar' || s.chartType === 'line';
+
+  return {
+    type: s.chartType,
+    data,
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: s.indexAxis,
+      plugins: {
+        legend: { display: showLegend, position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, font: { size: fontSize } } }
+      },
+      scales: s.chartType === 'scatter'
+        ? { x: { type: 'linear', position: 'bottom', grid: { color: '#f1f5f9' }, ticks: { font: { size: fontSize }, color: '#94a3b8' } }, y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: fontSize }, color: '#94a3b8' } } }
+        : cartesian
+          ? { y: { beginAtZero: true, stacked: !!s.stacked, grid: { color: '#f1f5f9' }, ticks: { font: { size: fontSize }, color: '#94a3b8' } }, x: { stacked: !!s.stacked, grid: { display: false }, ticks: { font: { size: fontSize }, color: '#94a3b8' } } }
+          : {}
+    }
+  };
 }
