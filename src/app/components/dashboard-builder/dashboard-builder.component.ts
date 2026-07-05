@@ -87,6 +87,61 @@ interface ChartMeta { t: WidgetSpec['chartType']; axis: 'x' | 'y'; fill: boolean
               <span class="chips-empty" *ngIf="!hasColumns()">No columns selected — pick from the left.</span>
             </div>
 
+            <!-- category filter -->
+            <div class="filter-block" *ngIf="showFilter()">
+              <div class="filter-head">
+                <span class="section-label">FILTER {{ currentDimName() }}</span>
+                <button class="filter-reset" (click)="resetFilter()">Select all</button>
+              </div>
+
+              <div class="filter-controls" *ngIf="currentDimType() === 'date'">
+                <label class="filter-label">Group by</label>
+                <select class="filter-select" (change)="onGranularityChange($event)">
+                  <option value="monthly" [selected]="granularity === 'monthly'">Monthly</option>
+                  <option value="quarterly" [selected]="granularity === 'quarterly'">Quarterly</option>
+                  <option value="half-yearly" [selected]="granularity === 'half-yearly'">Half-Yearly</option>
+                  <option value="yearly" [selected]="granularity === 'yearly'">Yearly</option>
+                </select>
+              </div>
+
+              <div class="filter-controls" *ngIf="currentDimType() === 'string' && measureNames().length">
+                <label class="filter-label">Show</label>
+                <select class="filter-select" (change)="onTopNChange($event)">
+                  <option value="all" [selected]="topNOption === 'all'">All values</option>
+                  <option value="top3" [selected]="topNOption === 'top3'">Top 3 by {{ measureNames()[0] }}</option>
+                  <option value="top5" [selected]="topNOption === 'top5'">Top 5 by {{ measureNames()[0] }}</option>
+                  <option value="bottom3" [selected]="topNOption === 'bottom3'">Bottom 3 by {{ measureNames()[0] }}</option>
+                </select>
+              </div>
+
+              <div class="filter-controls" *ngIf="measureNames().length">
+                <label class="filter-label">Combine using</label>
+                <select class="filter-select" (change)="onAggregationChange($event)">
+                  <option value="sum" [selected]="aggregation === 'sum'">Sum</option>
+                  <option value="avg" [selected]="aggregation === 'avg'">Average</option>
+                  <option value="min" [selected]="aggregation === 'min'">Min</option>
+                  <option value="max" [selected]="aggregation === 'max'">Max</option>
+                </select>
+              </div>
+
+              <div class="filter-controls range-row" *ngIf="measureNames().length">
+                <label class="filter-label">{{ measureNames()[0] }} range</label>
+                <input class="range-input" type="number" placeholder="Min" [value]="rangeMin" (change)="onRangeInput('min', $event)" />
+                <span class="range-sep">–</span>
+                <input class="range-input" type="number" placeholder="Max" [value]="rangeMax" (change)="onRangeInput('max', $event)" />
+                <button class="filter-apply" (click)="applyRange()">Apply</button>
+                <button class="filter-reset" (click)="clearRange()">Clear</button>
+              </div>
+
+              <div class="chip-search-row" *ngIf="allLabelsForFilter().length > 8">
+                <input class="chip-search" type="text" placeholder="Search values…" [value]="chipSearch" (input)="onChipSearch($event)" />
+              </div>
+              <div class="filter-chips">
+                <button class="f-chip" *ngFor="let l of visibleChips()" [class.active]="isLabelActive(l)" (click)="toggleLabel(l)">{{ l }}</button>
+                <button class="f-chip more" *ngIf="showMoreToggle()" (click)="toggleChipsExpanded()">{{ chipsExpanded ? 'Show less' : '+' + hiddenChipCount() + ' more' }}</button>
+              </div>
+            </div>
+
             <!-- compatible visualizations -->
             <div *ngIf="hasColumns()">
               <div class="section-label">COMPATIBLE VISUALIZATIONS</div>
@@ -220,6 +275,31 @@ interface ChartMeta { t: WidgetSpec['chartType']; axis: 'x' | 'y'; fill: boolean
     .chips-empty { font-size: 13px; color: #94a3b8; }
 
     .section-label { font-size: 10.5px; font-weight: 700; color: #94a3b8; letter-spacing: 0.5px; margin-bottom: 12px; }
+
+    .filter-block { margin-bottom: 22px; }
+    .filter-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .filter-head .section-label { margin-bottom: 0; }
+    .filter-reset { background: none; border: none; color: #2563eb; font-size: 11.5px; font-weight: 600; cursor: pointer; padding: 0; }
+    .filter-reset:hover { text-decoration: underline; }
+    .filter-controls { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .filter-label { font-size: 12px; font-weight: 600; color: #64748b; }
+    .filter-select { border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 6px 10px; font-size: 12.5px; font-weight: 600; color: #0f172a; background: white; cursor: pointer; }
+    .filter-select:hover { border-color: #93c5fd; }
+    .range-row { flex-wrap: wrap; }
+    .range-input { width: 80px; border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 6px 8px; font-size: 12.5px; color: #0f172a; }
+    .range-input:hover { border-color: #93c5fd; }
+    .range-sep { color: #94a3b8; }
+    .filter-apply { background: #2563eb; border: none; color: white; font-size: 11.5px; font-weight: 600; padding: 6px 12px; border-radius: 7px; cursor: pointer; }
+    .filter-apply:hover { background: #1d4ed8; }
+    .chip-search-row { margin-bottom: 10px; }
+    .chip-search { width: 100%; border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 7px 10px; font-size: 12.5px; box-sizing: border-box; }
+    .chip-search:hover, .chip-search:focus { border-color: #93c5fd; outline: none; }
+    .filter-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .f-chip { background: #f8fafc; border: 1.5px solid #e2e8f0; color: #64748b; font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 20px; cursor: pointer; transition: all 0.15s ease; }
+    .f-chip:hover { border-color: #93c5fd; }
+    .f-chip.active { background: #eff6ff; border-color: #2563eb; color: #2563eb; }
+    .f-chip.more { background: white; border-style: dashed; color: #2563eb; }
+
     .viz-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 24px; }
     .viz-card { background: white; border: 1.5px solid #e8ebf2; border-radius: 12px; padding: 16px 12px; display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; text-align: center; transition: all 0.15s ease; }
     .viz-card:hover { border-color: #2563eb; box-shadow: 0 6px 18px rgba(37,99,235,0.1); }
@@ -338,6 +418,7 @@ export class DashboardBuilderComponent {
     }
     // if the current chart is no longer valid for the new selection, clear it
     if (this.selectedViz && !this.allowed(this.selectedViz)) this.selectedViz = null;
+    this.syncLabelFilter();
     this.refreshPreview();
   }
 
@@ -358,6 +439,8 @@ export class DashboardBuilderComponent {
   startOver() {
     this.selectedCols = []; this.selectedViz = null;
     this.previewKpi = 0; this.previewColumns = []; this.previewRows = [];
+    this.filterKey = null; this.activeLabels = []; this.granularity = 'monthly'; this.topNOption = 'all';
+    this.aggregation = 'sum'; this.rangeMin = null; this.rangeMax = null; this.chipSearch = ''; this.chipsExpanded = false;
     this.destroyChart();
   }
 
@@ -387,6 +470,208 @@ export class DashboardBuilderComponent {
   private measureCols(): Column[] { return this.selectedCols.filter(c => c.type === 'number'); }
   measureNames(): string[] { return this.measureCols().map(c => c.name); }
 
+  // ---- category / date filter for the single selected dimension ----
+  activeLabels: string[] = [];
+  granularity: 'monthly' | 'quarterly' | 'half-yearly' | 'yearly' = 'monthly';
+  topNOption: 'all' | 'top3' | 'top5' | 'bottom3' = 'all';
+  aggregation: 'sum' | 'avg' | 'min' | 'max' = 'sum';
+  rangeMin: number | null = null;
+  rangeMax: number | null = null;
+  chipSearch = '';
+  chipsExpanded = false;
+  private filterKey: string | null = null;
+  private static readonly MONTH_NAMES = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  /** Rows-per-category to simulate, so aggregation choices are meaningful even on this demo's one-value dataset. */
+  private readonly sampleSize = 4;
+
+  currentDimName(): string | null {
+    const dims = this.dimCols();
+    return dims.length === 1 ? dims[0].name : null;
+  }
+
+  currentDimType(): 'string' | 'date' | null {
+    const dims = this.dimCols();
+    return dims.length === 1 ? (dims[0].type as 'string' | 'date') : null;
+  }
+
+  /** Calendar-correct quarter/half/year key for a label — parses real dates when possible, falls back to month-name matching. */
+  private calendarKey(label: string): { quarter: string; half: string; year: string; sortIdx: number } {
+    const d = new Date(label);
+    if (!isNaN(d.getTime()) && /\d{4}/.test(label)) {
+      const year = d.getFullYear();
+      const month = d.getMonth(); // 0-11, real calendar month
+      return { quarter: `${year}-Q${Math.floor(month / 3) + 1}`, half: `${year}-H${month < 6 ? 1 : 2}`, year: `${year}`, sortIdx: year * 12 + month };
+    }
+    const month = DashboardBuilderComponent.MONTH_NAMES.findIndex(m => label.toLowerCase().startsWith(m));
+    const m = month >= 0 ? month : 0;
+    return { quarter: `Q${Math.floor(m / 3) + 1}`, half: `H${m < 6 ? 1 : 2}`, year: 'Year 1', sortIdx: m };
+  }
+
+  /** Buckets a date dimension's raw labels into quarters/halves/years by real calendar meaning, not array position; null means "use raw labels". */
+  private bucketsFor(dimName: string): { label: string; idxs: number[] }[] | null {
+    if (this.currentDimType() !== 'date' || this.granularity === 'monthly') return null;
+    const all = this.compat.labelsFor(dimName);
+    const groups = new Map<string, { idxs: number[]; sortIdx: number }>();
+    all.forEach((label, i) => {
+      const k = this.calendarKey(label);
+      const key = this.granularity === 'quarterly' ? k.quarter : this.granularity === 'half-yearly' ? k.half : k.year;
+      if (!groups.has(key)) groups.set(key, { idxs: [], sortIdx: k.sortIdx });
+      groups.get(key)!.idxs.push(i);
+    });
+    return Array.from(groups.entries())
+      .sort((a, b) => a[1].sortIdx - b[1].sortIdx)
+      .map(([label, g]) => ({ label, idxs: g.idxs }));
+  }
+
+  private hashStr(s: string): number {
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return h >>> 0;
+  }
+
+  /**
+   * Simulates several underlying rows for one category, so Sum/Average/Min/Max actually differ — stands in for
+   * real row-level aggregation. Mirrors ChartCompatibilityService.valuesFor's magnitude-per-measure logic
+   * directly (rather than delegating to it with a composite key) so costUsd/tickets keep their real scale.
+   */
+  private rawValuesFor(measure: string, category: string): number[] {
+    const base = measure === 'costUsd' ? 4000 : measure === 'tickets' ? 600 : 25;
+    let seed = this.hashStr(`${measure}::${category}`);
+    const out: number[] = [];
+    for (let i = 0; i < this.sampleSize; i++) {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      out.push(Math.round(base * (0.35 + seed / 4294967296)));
+    }
+    return out;
+  }
+
+  private aggregateValues(values: number[]): number {
+    if (!values.length) return 0;
+    const sum = values.reduce((a, b) => a + b, 0);
+    switch (this.aggregation) {
+      case 'avg': return Math.round(sum / values.length);
+      case 'min': return Math.min(...values);
+      case 'max': return Math.max(...values);
+      default: return sum;
+    }
+  }
+
+  /** Aggregated value for one axis entry — may span several raw category indices (e.g. all months in a quarter). */
+  private categoryValue(measure: string, idxs: number[], allLabels: string[]): number {
+    const raw = idxs.flatMap(i => this.rawValuesFor(measure, allLabels[i]));
+    return this.aggregateValues(raw);
+  }
+
+  /** Resolved x-axis entries (label + contributing source indices), optionally ignoring the active filter. */
+  private axisFor(dimName: string, ignoreFilter = false): { label: string; idxs: number[] }[] {
+    const buckets = this.bucketsFor(dimName);
+    const all = buckets ?? this.compat.labelsFor(dimName).map((l, i) => ({ label: l, idxs: [i] }));
+    return ignoreFilter ? all : all.filter(a => this.activeLabels.includes(a.label));
+  }
+
+  private syncLabelFilter() {
+    const dimName = this.currentDimName();
+    if (!dimName) { this.filterKey = null; this.activeLabels = []; return; }
+    const key = dimName + '|' + this.granularity;
+    if (this.filterKey !== key) {
+      this.filterKey = key;
+      this.topNOption = 'all';
+      this.rangeMin = null; this.rangeMax = null;
+      this.chipSearch = ''; this.chipsExpanded = false;
+      this.activeLabels = this.axisFor(dimName, true).map(a => a.label);
+    }
+  }
+
+  showFilter(): boolean { return this.hasColumns() && this.currentDimName() !== null; }
+  allLabelsForFilter(): string[] { const n = this.currentDimName(); return n ? this.axisFor(n, true).map(a => a.label) : []; }
+  isLabelActive(label: string): boolean { return this.activeLabels.includes(label); }
+
+  toggleLabel(label: string) {
+    if (this.isLabelActive(label)) {
+      if (this.activeLabels.length > 1) this.activeLabels = this.activeLabels.filter(l => l !== label);
+    } else {
+      this.activeLabels = [...this.activeLabels, label];
+    }
+    this.topNOption = 'all';
+    this.refreshPreview();
+  }
+
+  resetFilter() {
+    this.topNOption = 'all';
+    this.activeLabels = this.allLabelsForFilter();
+    this.refreshPreview();
+  }
+
+  onGranularityChange(e: Event) {
+    this.granularity = (e.target as HTMLSelectElement).value as typeof this.granularity;
+    this.filterKey = null;
+    this.syncLabelFilter();
+    this.refreshPreview();
+  }
+
+  onTopNChange(e: Event) {
+    this.topNOption = (e.target as HTMLSelectElement).value as typeof this.topNOption;
+    const dimName = this.currentDimName();
+    const meas = this.measureCols();
+    if (!dimName || !meas.length || this.topNOption === 'all') {
+      this.activeLabels = this.allLabelsForFilter();
+      this.refreshPreview();
+      return;
+    }
+    const axis = this.axisFor(dimName, true);
+    const allLabels = this.compat.labelsFor(dimName);
+    const scored = axis.map(a => ({ label: a.label, v: this.categoryValue(meas[0].name, a.idxs, allLabels) }));
+    scored.sort((a, b) => this.topNOption === 'bottom3' ? a.v - b.v : b.v - a.v);
+    const n = this.topNOption === 'top5' ? 5 : 3;
+    this.activeLabels = scored.slice(0, n).map(s => s.label);
+    this.refreshPreview();
+  }
+
+  onAggregationChange(e: Event) {
+    this.aggregation = (e.target as HTMLSelectElement).value as typeof this.aggregation;
+    this.refreshPreview();
+  }
+
+  onRangeInput(which: 'min' | 'max', e: Event) {
+    const raw = (e.target as HTMLInputElement).value;
+    const val = raw === '' ? null : Number(raw);
+    if (which === 'min') this.rangeMin = val; else this.rangeMax = val;
+  }
+
+  applyRange() {
+    const dimName = this.currentDimName();
+    const meas = this.measureCols();
+    if (!dimName || !meas.length) return;
+    const axis = this.axisFor(dimName, true);
+    const allLabels = this.compat.labelsFor(dimName);
+    const kept = axis.filter(a => {
+      const v = this.categoryValue(meas[0].name, a.idxs, allLabels);
+      if (this.rangeMin != null && v < this.rangeMin) return false;
+      if (this.rangeMax != null && v > this.rangeMax) return false;
+      return true;
+    }).map(a => a.label);
+    this.topNOption = 'all';
+    this.activeLabels = kept.length ? kept : axis.map(a => a.label);
+    this.refreshPreview();
+  }
+
+  clearRange() {
+    this.rangeMin = null;
+    this.rangeMax = null;
+    this.resetFilter();
+  }
+
+  private filteredChipList(): string[] {
+    const all = this.allLabelsForFilter();
+    return this.chipSearch ? all.filter(l => l.toLowerCase().includes(this.chipSearch.toLowerCase())) : all;
+  }
+
+  onChipSearch(e: Event) { this.chipSearch = (e.target as HTMLInputElement).value; }
+  visibleChips(): string[] { const f = this.filteredChipList(); return this.chipsExpanded ? f : f.slice(0, 12); }
+  hiddenChipCount(): number { return Math.max(0, this.filteredChipList().length - 12); }
+  showMoreToggle(): boolean { return this.filteredChipList().length > 12; }
+  toggleChipsExpanded() { this.chipsExpanded = !this.chipsExpanded; }
+
   private specFor(): WidgetSpec {
     const viz = this.selectedViz!;
     const primary = this.palette[this.selPalette];
@@ -394,7 +679,8 @@ export class DashboardBuilderComponent {
     const meas = this.measureCols();
     const base: WidgetSpec = {
       id: 0, viz, title: '', chartType: null, labels: [], datasets: [],
-      primary, fill: false, multiColor: false, radial: false, indexAxis: 'x', showLegend: false
+      primary, fill: false, multiColor: false, radial: false, indexAxis: 'x', showLegend: false,
+      legendPosition: this.legendPos.toLowerCase() as WidgetSpec['legendPosition']
     };
 
     if (viz === 'kpi') {
@@ -403,13 +689,18 @@ export class DashboardBuilderComponent {
     }
 
     if (viz === 'table') {
-      const rowLabels = dims.length ? this.compat.labelsFor(dims[0].name) : this.compat.valuesFor(meas[0].name, 6).map((_, i) => `Row ${i + 1}`);
-      const n = rowLabels.length;
+      const dim0 = dims[0];
+      const axis = dim0 ? this.axisFor(dim0.name) : null;
+      const rowLabels = axis ? axis.map(a => a.label) : this.compat.valuesFor(meas[0].name, 6).map((_, i) => `Row ${i + 1}`);
+      const allLabels0 = dim0 ? this.compat.labelsFor(dim0.name) : [];
       const columns = this.selectedCols.map(c => c.name);
-      const rows = rowLabels.map((label, i) =>
-        this.selectedCols.map(c => c.type === 'number'
-          ? this.compat.valuesFor(c.name, n)[i]
-          : (c === dims[0] ? label : this.compat.labelsFor(c.name)[i % this.compat.labelsFor(c.name).length])));
+      const rows = rowLabels.map((label, ri) => {
+        const idxs = axis ? axis[ri].idxs : [ri];
+        return this.selectedCols.map(c => {
+          if (c.type === 'number') return this.categoryValue(c.name, idxs, allLabels0);
+          return c === dim0 ? label : this.compat.labelsFor(c.name)[idxs[0] % this.compat.labelsFor(c.name).length];
+        });
+      });
       return { ...base, title: 'Data table', tableColumns: columns, tableRows: rows };
     }
 
@@ -424,8 +715,13 @@ export class DashboardBuilderComponent {
     }
 
     const dim = dims[0];
-    const labels = this.compat.labelsFor(dim.name);
-    const datasets: Series[] = (mt.multi ? [meas[0]] : meas).map(m => ({ label: m.name, data: this.compat.valuesFor(m.name, labels.length) }));
+    const axis = this.axisFor(dim.name);
+    const labels = axis.map(a => a.label);
+    const allLabels = this.compat.labelsFor(dim.name);
+    const datasets: Series[] = (mt.multi ? [meas[0]] : meas).map(m => ({
+      label: m.name,
+      data: axis.map(a => this.categoryValue(m.name, a.idxs, allLabels))
+    }));
     return {
       ...base, chartType: mt.t, title: `${meas.map(m => m.name).join(', ')} by ${dim.name}`,
       labels, datasets, fill: mt.fill, multiColor: mt.multi, radial: mt.radial, indexAxis: mt.axis,
@@ -440,8 +736,6 @@ export class DashboardBuilderComponent {
     if (!this._canvas || !this.isChartViz(this.selectedViz) || !this.allowed(this.selectedViz!)) return;
     this.destroyChart();
     const cfg = buildChartConfig(this.specFor(), false);
-    // apply legend position choice
-    if (cfg.options?.plugins?.legend) cfg.options.plugins.legend.position = this.legendPos.toLowerCase();
     this.chart = new Chart(this._canvas.getContext('2d')!, cfg);
   }
 }

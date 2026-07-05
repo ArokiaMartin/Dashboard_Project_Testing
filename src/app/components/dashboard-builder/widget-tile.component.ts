@@ -20,6 +20,7 @@ export interface WidgetSpec {
   radial: boolean;
   indexAxis: 'x' | 'y';
   showLegend: boolean;
+  legendPosition?: 'bottom' | 'right' | 'top';
   stacked?: boolean;
   kpiTotal?: number;
   kpiLabel?: string;
@@ -94,23 +95,30 @@ export class WidgetTileComponent implements AfterViewInit, OnDestroy {
   }
 }
 
+/** Builds a colour sequence that always starts with the user's chosen primary colour. */
+function paletteFrom(primary: string): string[] {
+  const rest = PALETTE.filter(c => c.toLowerCase() !== primary.toLowerCase());
+  return [primary, ...rest];
+}
+
 /** Shared Chart.js config builder — used by tiles and the builder preview. */
 export function buildChartConfig(s: WidgetSpec, compact: boolean): any {
   const fontSize = compact ? 10 : 11;
   const pointSize = compact ? 3 : 4;
+  const colors = paletteFrom(s.primary);
   let data: any;
 
   if (s.chartType === 'scatter') {
     data = { datasets: [{ label: s.datasets[0]?.label ?? '', data: s.points ?? [], backgroundColor: s.primary, pointRadius: pointSize + 2 }] };
   } else if (s.multiColor) {
     // pie / doughnut / polar — one series, many colours
-    data = { labels: s.labels, datasets: [{ data: s.datasets[0]?.data ?? [], backgroundColor: PALETTE, borderColor: '#fff', borderWidth: 2 }] };
+    data = { labels: s.labels, datasets: [{ data: s.datasets[0]?.data ?? [], backgroundColor: colors, borderColor: '#fff', borderWidth: 2 }] };
   } else {
     // bar / line / area / radar — one dataset per measure
     data = {
       labels: s.labels,
       datasets: s.datasets.map((d, i) => {
-        const c = PALETTE[i % PALETTE.length];
+        const c = colors[i % colors.length];
         return {
           label: d.label,
           data: d.data,
@@ -137,7 +145,7 @@ export function buildChartConfig(s: WidgetSpec, compact: boolean): any {
       maintainAspectRatio: false,
       indexAxis: s.indexAxis,
       plugins: {
-        legend: { display: showLegend, position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, font: { size: fontSize } } }
+        legend: { display: showLegend, position: s.legendPosition || 'bottom', labels: { usePointStyle: true, boxWidth: 8, font: { size: fontSize } } }
       },
       scales: s.chartType === 'scatter'
         ? { x: { type: 'linear', position: 'bottom', grid: { color: '#f1f5f9' }, ticks: { font: { size: fontSize }, color: '#94a3b8' } }, y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: fontSize }, color: '#94a3b8' } } }
