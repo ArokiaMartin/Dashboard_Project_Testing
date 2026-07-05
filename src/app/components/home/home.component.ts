@@ -1,6 +1,7 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { RouterLink, Router } from '@angular/router';
+import { UploadService } from '../../services/upload.service';
 
 interface DashCard {
   name: string;
@@ -54,15 +55,23 @@ interface Report {
             <h3>Upload Report</h3>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
           </div>
-          <div class="drop" [class.over]="over" (dragover)="onOver($event)" (dragleave)="over=false" (drop)="onDrop($event)">
+          <input #fileInput type="file" accept=".json,.csv,.xlsx,.xls" hidden (change)="onSelect($event)" />
+          <div class="drop" [class.over]="over" [class.busy]="uploading"
+               (click)="fileInput.click()"
+               (dragover)="onOver($event)" (dragleave)="over=false" (drop)="onDrop($event)">
             <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="1.6"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            <p class="drop-title">Drag &amp; drop JSON data here</p>
-            <p class="drop-sub">Maximum file size: 25MB</p>
-            <button class="btn light">Browse Files</button>
+            <p class="drop-title" *ngIf="!uploading">Drag &amp; drop your file here</p>
+            <p class="drop-title" *ngIf="uploading">Parsing {{ pickedName }}…</p>
+            <p class="drop-sub">JSON, CSV or Excel · up to 25MB</p>
+            <button class="btn light" type="button" (click)="$event.stopPropagation(); fileInput.click()">Browse Files</button>
           </div>
-          <div class="upload-foot">
+          <div class="upload-error" *ngIf="error">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            {{ error }}
+          </div>
+          <div class="upload-foot" *ngIf="!error">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-            Supports standardized Hyland JSON exports.
+            Supports JSON, CSV, and Excel (.xlsx) files.
           </div>
         </div>
 
@@ -174,12 +183,15 @@ interface Report {
     .card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
     .card-head h3 { margin: 0; font-size: 15px; font-weight: 700; color: #0f172a; }
 
-    .drop { border: 1.5px dashed #cbd5e1; border-radius: 12px; padding: 28px 18px; text-align: center; transition: all 0.2s ease; }
+    .drop { border: 1.5px dashed #cbd5e1; border-radius: 12px; padding: 28px 18px; text-align: center; transition: all 0.2s ease; cursor: pointer; }
+    .drop:hover { border-color: #93c5fd; background: #f8fbff; }
     .drop.over { border-color: #2563eb; background: #f0f6ff; }
+    .drop.busy { opacity: 0.6; pointer-events: none; }
     .drop svg { margin-bottom: 12px; }
     .drop-title { margin: 0 0 3px; font-size: 14px; font-weight: 600; color: #334155; }
     .drop-sub { margin: 0 0 14px; font-size: 12px; color: #94a3b8; }
     .upload-foot { display: flex; align-items: center; gap: 7px; margin-top: 16px; font-size: 12px; color: #94a3b8; }
+    .upload-error { display: flex; align-items: center; gap: 7px; margin-top: 16px; font-size: 12px; color: #dc2626; font-weight: 500; }
 
     .block-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
     .block-head h3 { margin: 0; font-size: 15px; font-weight: 700; color: #0f172a; }
@@ -238,6 +250,11 @@ interface Report {
 })
 export class HomeComponent {
   over = false;
+  uploading = false;
+  error = '';
+  pickedName = '';
+
+  constructor(private router: Router, private upload: UploadService) {}
 
   dashboards: DashCard[] = [
     { name: 'Accessibility', edited: '2h ago', thumb: 'linear-gradient(135deg,#8ea2c9,#aab8d6)' },
@@ -252,5 +269,40 @@ export class HomeComponent {
   ];
 
   onOver(e: DragEvent) { e.preventDefault(); this.over = true; }
-  onDrop(e: DragEvent) { e.preventDefault(); this.over = false; }
+
+  onDrop(e: DragEvent) {
+    e.preventDefault();
+    this.over = false;
+    const file = e.dataTransfer?.files?.[0];
+    if (file) this.handleFile(file);
+  }
+
+  onSelect(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (file) this.handleFile(file);
+    input.value = ''; // reset so the same file can be re-selected
+  }
+
+  private async handleFile(file: File): Promise<void> {
+    this.error = '';
+    if (!/\.(json|csv|xlsx|xls)$/i.test(file.name)) {
+      this.error = 'Unsupported file. Please upload JSON, CSV, or Excel.';
+      return;
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      this.error = 'File is too large (max 25MB).';
+      return;
+    }
+    this.uploading = true;
+    this.pickedName = file.name;
+    try {
+      await this.upload.parse(file);
+      this.router.navigate(['/data']); // show the parsed tables
+    } catch (err: any) {
+      this.error = err?.message || 'Could not read the file.';
+    } finally {
+      this.uploading = false;
+    }
+  }
 }
