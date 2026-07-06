@@ -24,7 +24,6 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -78,57 +77,9 @@ public class JsonIngestionService {
                   is_measure BOOLEAN DEFAULT false,
                   distinct_count INT,
                   null_count INT,
-                                    min_value TEXT,
-                                    max_value TEXT,
+                  min_value TEXT,
+                  max_value TEXT,
                   UNIQUE(upload_id, field_name)
-                )
-                """);
-
-                // Upgrade existing databases created with VARCHAR(255) metadata preview columns.
-                jdbcTemplate.execute("ALTER TABLE field_metadata ALTER COLUMN min_value TYPE TEXT");
-                jdbcTemplate.execute("ALTER TABLE field_metadata ALTER COLUMN max_value TYPE TEXT");
-
-        jdbcTemplate.execute("""
-                CREATE TABLE IF NOT EXISTS reports (
-                  id UUID PRIMARY KEY,
-                  user_id UUID NOT NULL,
-                  upload_id UUID REFERENCES data_uploads(id),
-                  title VARCHAR(255),
-                  description TEXT,
-                  configuration JSONB,
-                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-                """);
-
-        jdbcTemplate.execute("""
-                CREATE TABLE IF NOT EXISTS widgets (
-                  id UUID PRIMARY KEY,
-                  report_id UUID REFERENCES reports(id) ON DELETE CASCADE,
-                  chart_type VARCHAR(50),
-                  dimensions JSONB,
-                  measures JSONB,
-                  filters JSONB,
-                  sort_config JSONB,
-                  position_row INT,
-                  position_col INT,
-                  width INT,
-                  height INT,
-                  query_sql TEXT,
-                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-                """);
-
-        jdbcTemplate.execute("""
-                CREATE TABLE IF NOT EXISTS audit_log (
-                  id UUID PRIMARY KEY,
-                  user_id UUID,
-                  upload_id UUID REFERENCES data_uploads(id),
-                  query_sql TEXT,
-                  execution_time INT,
-                  row_count INT,
-                  status VARCHAR(50),
-                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """);
     }
@@ -145,18 +96,21 @@ public class JsonIngestionService {
             throw new IllegalArgumentException("Failed to parse JSON file", e);
         }
 
-        List<Map<String, Object>> rows = extractRows(root);
+        ParsedRows parsedRows = extractRows(root);
+        List<Map<String, Object>> rows = parsedRows.rows();
         if (rows.isEmpty()) {
             throw new IllegalArgumentException("JSON has no records to ingest");
         }
 
-        AnalyzedData analyzedData = analyzeRows(rows);
+        AnalyzedData analyzedData = analyzeRows(rows, parsedRows.jsonFields());
         String uploadToken = UUID.randomUUID().toString();
 
         stagedUploads.put(uploadToken, new ParsedUpload(
                 file.getOriginalFilename(),
+            root,
                 rows,
-                analyzedData
+            parsedRows.jsonFields(),
+            analyzedData
         ));
 
         List<Object> sampleRows = new ArrayList<>();
@@ -187,37 +141,54 @@ public class JsonIngestionService {
         }
 
         List<Map<String, Object>> rows;
+        Set<String> jsonFields;
         AnalyzedData analyzedData;
         String originalFilename;
 
         if (parsedUpload != null) {
             rows = parsedUpload.rows();
             analyzedData = parsedUpload.analyzedData();
+            jsonFields = parsedUpload.jsonFields();
             originalFilename = parsedUpload.originalFilename();
         } else {
             if (request.data() == null || request.data().isNull()) {
                 throw new IllegalArgumentException("Either uploadToken or data must be provided");
             }
-            rows = extractRows(request.data());
+            ParsedRows parsedRows = extractRows(request.data());
+            rows = parsedRows.rows();
             if (rows.isEmpty()) {
                 throw new IllegalArgumentException("Provided data has no records to ingest");
             }
-            analyzedData = analyzeRows(rows);
+            jsonFields = parsedRows.jsonFields();
+            analyzedData = analyzeRows(rows, jsonFields);
             originalFilename = request.originalFilename();
         }
 
-        UUID uploadId = UUID.randomUUID();
         UUID userId = parseUserId(request.userId());
-        String dynamicTableName = resolveTableName(request.tableName(), uploadId);
+        String dynamicTableName = resolveTableName(request.tableName(), originalFilename);
+        UUID existingUploadId = findUploadIdByTableName(dynamicTableName);
+        UUID uploadId = existingUploadId != null ? existingUploadId : UUID.randomUUID();
+
+        if (existingUploadId != null) {
+            overwriteExistingTable(dynamicTableName, uploadId);
+        }
 
         createDynamicTable(dynamicTableName, analyzedData.fields());
-        int inserted = insertRows(dynamicTableName, uploadId, rows, analyzedData.fields());
+        int inserted = insertRows(dynamicTableName, uploadId, rows, analyzedData.fields(), jsonFields);
 
         jdbcTemplate.update(
                 """
                         INSERT INTO data_uploads (
                           id, user_id, table_name, original_filename, row_count, column_count, status
                         ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (table_name)
+                DO UPDATE SET
+                  user_id = EXCLUDED.user_id,
+                  original_filename = EXCLUDED.original_filename,
+                  row_count = EXCLUDED.row_count,
+                  column_count = EXCLUDED.column_count,
+                  status = EXCLUDED.status,
+                  updated_at = CURRENT_TIMESTAMP
                         """,
                 uploadId,
                 userId,
@@ -237,12 +208,44 @@ public class JsonIngestionService {
         return new IngestResponse(
                 uploadId.toString(),
                 dynamicTableName,
+            Collections.emptyList(),
                 inserted,
                 analyzedData.fields().size(),
                 "complete",
                 Collections.emptyList(),
-                "Table created and data inserted successfully"
+                "Single table created and data inserted successfully"
         );
+    }
+
+    private UUID findUploadIdByTableName(String tableName) {
+        List<UUID> ids = jdbcTemplate.query(
+                "SELECT id FROM data_uploads WHERE table_name = ?",
+                (rs, rowNum) -> (UUID) rs.getObject("id"),
+                tableName
+        );
+        if (ids.isEmpty()) {
+            return null;
+        }
+        return ids.get(0);
+    }
+
+    private void overwriteExistingTable(String tableName, UUID uploadId) {
+        jdbcTemplate.execute("DROP TABLE IF EXISTS " + quoteIdentifier(tableName));
+        jdbcTemplate.update("DELETE FROM field_metadata WHERE upload_id = ?", uploadId);
+    }
+
+    private boolean isArrayOfObjects(JsonNode value) {
+        if (value == null || !value.isArray() || value.isEmpty()) {
+            return false;
+        }
+
+        for (JsonNode item : value) {
+            if (!item.isObject()) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private void saveFieldMetadata(UUID uploadId, List<FieldAnalysis> fields) {
@@ -293,7 +296,7 @@ public class JsonIngestionService {
         return value.substring(0, maxLength) + "...";
     }
 
-    private int insertRows(String tableName, UUID uploadId, List<Map<String, Object>> rows, List<FieldAnalysis> fields) {
+    private int insertRows(String tableName, UUID uploadId, List<Map<String, Object>> rows, List<FieldAnalysis> fields, Set<String> jsonFields) {
         if (rows.isEmpty()) {
             return 0;
         }
@@ -311,8 +314,13 @@ public class JsonIngestionService {
         }
         sql.append(") VALUES (");
         sql.append("?, ?");
-        for (int i = 0; i < dbColumns.size(); i++) {
-            sql.append(", ?");
+        for (FieldAnalysis field : fields) {
+            sql.append(", ");
+            if (jsonFields.contains(field.fieldName())) {
+                sql.append("?::jsonb");
+            } else {
+                sql.append("?");
+            }
         }
         sql.append(")");
 
@@ -431,14 +439,6 @@ public class JsonIngestionService {
 
         ddl.append(", PRIMARY KEY (upload_id, row_id))");
         jdbcTemplate.execute(ddl.toString());
-
-        for (FieldAnalysis field : fields) {
-            if (field.isDimension()) {
-                String indexName = sanitizeIdentifier(tableName + "_" + field.normalizedFieldName() + "_idx", "idx");
-                jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS " + quoteIdentifier(indexName) +
-                        " ON " + quoteIdentifier(tableName) + " (" + quoteIdentifier(field.normalizedFieldName()) + ")");
-            }
-        }
     }
 
     private String toSqlType(String fieldType) {
@@ -450,11 +450,37 @@ public class JsonIngestionService {
         };
     }
 
-    private String resolveTableName(String requestedTableName, UUID uploadId) {
-        if (requestedTableName != null && !requestedTableName.isBlank()) {
-            return sanitizeIdentifier(requestedTableName, "upload_" + uploadId.toString().replace("-", "").substring(0, 8));
+    private String resolveTableName(String requestedTableName, String originalFilename) {
+        String fallback = "upload_data";
+
+        String preferred = tableNameFromFilename(originalFilename);
+        if (preferred == null && requestedTableName != null && !requestedTableName.isBlank()) {
+            preferred = sanitizeIdentifier(requestedTableName, fallback);
         }
-        return "upload_" + uploadId.toString().replace("-", "").substring(0, 12);
+        if (preferred == null) {
+            preferred = fallback;
+        }
+
+        return sanitizeIdentifier(preferred, fallback);
+    }
+
+    private String tableNameFromFilename(String originalFilename) {
+        if (originalFilename == null || originalFilename.isBlank()) {
+            return null;
+        }
+
+        String filename = originalFilename.trim();
+        int slashIdx = Math.max(filename.lastIndexOf('/'), filename.lastIndexOf('\\'));
+        if (slashIdx >= 0 && slashIdx < filename.length() - 1) {
+            filename = filename.substring(slashIdx + 1);
+        }
+
+        int dotIdx = filename.lastIndexOf('.');
+        if (dotIdx > 0) {
+            filename = filename.substring(0, dotIdx);
+        }
+
+        return sanitizeIdentifier(filename, null);
     }
 
     private UUID parseUserId(String userId) {
@@ -464,39 +490,121 @@ public class JsonIngestionService {
         return UUID.fromString(userId);
     }
 
-    private List<Map<String, Object>> extractRows(JsonNode root) {
+    private ParsedRows extractRows(JsonNode root) {
         if (root == null || root.isNull()) {
-            return Collections.emptyList();
-        }
-
-        JsonNode dataNode = root;
-        if (root.isObject() && root.has("data") && root.get("data").isArray()) {
-            dataNode = root.get("data");
+            return new ParsedRows(Collections.emptyList(), Collections.emptySet());
         }
 
         List<Map<String, Object>> rows = new ArrayList<>();
+        Set<String> jsonFields = new HashSet<>();
 
-        if (dataNode.isArray()) {
-            for (JsonNode item : dataNode) {
+        if (root.isArray()) {
+            for (JsonNode item : root) {
                 if (!item.isObject()) {
                     continue;
                 }
                 Map<String, Object> map = objectMapper.convertValue(item, Map.class);
-                rows.add(map);
+                rows.add(flattenRow(map, jsonFields));
             }
-            return rows;
+            return new ParsedRows(rows, jsonFields);
         }
 
-        if (dataNode.isObject()) {
-            Map<String, Object> map = objectMapper.convertValue(dataNode, Map.class);
-            rows.add(map);
-            return rows;
+        if (root.isObject()) {
+            // find all top-level arrays of objects and merge their elements
+            List<Map.Entry<String, JsonNode>> arraysFound = new ArrayList<>();
+            var fields = root.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> entry = fields.next();
+                JsonNode value = entry.getValue();
+                if (isArrayOfObjects(value)) {
+                    arraysFound.add(entry);
+                }
+            }
+
+            if (!arraysFound.isEmpty()) {
+                for (Map.Entry<String, JsonNode> e : arraysFound) {
+                    String sourceName = e.getKey();
+                    for (JsonNode item : e.getValue()) {
+                        if (!item.isObject()) {
+                            continue;
+                        }
+                        Map<String, Object> map = objectMapper.convertValue(item, Map.class);
+                        map.put("_source", sourceName);
+                        rows.add(flattenRow(map, jsonFields));
+                    }
+                }
+                return new ParsedRows(rows, jsonFields);
+            }
+
+            // fallback: single object treated as one row
+            Map<String, Object> map = objectMapper.convertValue(root, Map.class);
+            rows.add(flattenRow(map, jsonFields));
+            return new ParsedRows(rows, jsonFields);
         }
 
-        throw new IllegalArgumentException("JSON must be an object, array of objects, or object containing data[]");
+        throw new IllegalArgumentException("JSON must be an object, array of objects, or object containing arrays of objects");
     }
 
-    private AnalyzedData analyzeRows(List<Map<String, Object>> rows) {
+    private Map<String, Object> flattenRow(Map<String, Object> row, Set<String> jsonFields) {
+        Map<String, Object> flattened = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : row.entrySet()) {
+            String fieldName = entry.getKey();
+            if (fieldName == null || fieldName.isBlank()) {
+                continue;
+            }
+            flattenValue(fieldName, entry.getValue(), flattened, jsonFields);
+        }
+        return flattened;
+    }
+
+    private void flattenValue(String prefix, Object value, Map<String, Object> target, Set<String> jsonFields) {
+        if (value == null) {
+            target.put(prefix, null);
+            return;
+        }
+
+        if (value instanceof Map<?, ?> nestedMap) {
+            for (Map.Entry<?, ?> nestedEntry : nestedMap.entrySet()) {
+                String keyPart = String.valueOf(nestedEntry.getKey());
+                if (keyPart == null || keyPart.isBlank()) {
+                    continue;
+                }
+                flattenValue(prefix + "_" + keyPart, nestedEntry.getValue(), target, jsonFields);
+            }
+            return;
+        }
+
+        if (value instanceof List<?> list) {
+            if (list.isEmpty()) {
+                target.put(prefix, null);
+                return;
+            }
+            // Take only the first element of the array and flatten it under the same prefix
+            Object first = list.get(0);
+            flattenValue(prefix, first, target, jsonFields);
+            return;
+        }
+
+        if (value instanceof JsonNode node) {
+            if (node.isValueNode()) {
+                target.put(prefix, objectMapper.convertValue(node, Object.class));
+            } else {
+                jsonFields.add(prefix);
+                target.put(prefix, toJsonText(objectMapper.convertValue(node, Object.class)));
+            }
+            return;
+        }
+
+        if (value instanceof String || value instanceof Number || value instanceof Boolean || value instanceof Character) {
+            target.put(prefix, value);
+            return;
+        }
+
+        jsonFields.add(prefix);
+        target.put(prefix, toJsonText(value));
+    }
+
+    private AnalyzedData analyzeRows(List<Map<String, Object>> rows, Set<String> jsonFields) {
         Set<String> allFields = new HashSet<>();
         for (Map<String, Object> row : rows) {
             allFields.addAll(row.keySet());
@@ -523,6 +631,9 @@ public class JsonIngestionService {
             }
 
             String fieldType = detectFieldType(values);
+            if (jsonFields.contains(field)) {
+                fieldType = "json";
+            }
             boolean isMeasure = "numeric".equals(fieldType);
             boolean isDimension = !isMeasure;
 
@@ -559,6 +670,14 @@ public class JsonIngestionService {
         }
 
         return new AnalyzedData(fieldAnalyses);
+    }
+
+    private String toJsonText(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception ignored) {
+            return String.valueOf(value);
+        }
     }
 
     private Map<String, String> uniqueNormalizedNames(List<String> originalFields) {
@@ -626,6 +745,12 @@ public class JsonIngestionService {
             }
         }
         return false;
+    }
+
+    private record ParsedRows(
+            List<Map<String, Object>> rows,
+            Set<String> jsonFields
+    ) {
     }
 
     private boolean isBooleanValue(Object value) {
@@ -752,7 +877,9 @@ public class JsonIngestionService {
 
     private record ParsedUpload(
             String originalFilename,
+            JsonNode sourceJson,
             List<Map<String, Object>> rows,
+            Set<String> jsonFields,
             AnalyzedData analyzedData
     ) {
     }
