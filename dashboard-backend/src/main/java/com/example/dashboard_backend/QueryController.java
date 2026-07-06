@@ -12,11 +12,21 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
+import java.util.regex.Pattern;
 
 @RestController
 @CrossOrigin(origins = "*")
 @Tag(name = "Query API", description = "Endpoints for generating and executing SQL queries from a dashboard configuration")
 public class QueryController {
+
+    /**
+     * Identifiers (dataset/field/alias names) are validated against this pattern and quoted before
+     * being concatenated into SQL. Values, by contrast, are never concatenated as literals for
+     * execution — they're passed as JDBC bind parameters (see {@link #generateSql}).
+     */
+    private static final Pattern SAFE_IDENTIFIER = Pattern.compile("^[a-zA-Z_][a-zA-Z0-9_]*$");
+    private static final Set<String> VALID_AGGREGATIONS = Set.of("SUM", "AVG", "COUNT", "MIN", "MAX");
+    private static final Set<String> VALID_DIRECTIONS = Set.of("ASC", "DESC");
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -24,10 +34,14 @@ public class QueryController {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    public static String generateSql(JsonNode config) {
+    /** Result of building a query: the SQL text (for display) plus the bind parameters (for safe execution). */
+    public record GeneratedQuery(String sql, List<Object> params) {}
 
-        String dataset = config.get("dataset").asText();
+    public static GeneratedQuery generateSql(JsonNode config) {
 
+        String dataset = quoteIdentifier(validateIdentifier(config.get("dataset").asText(), "dataset"));
+
+        List<Object> params = new ArrayList<>();
         List<String> selectParts = new ArrayList<>();
         List<String> groupByParts = new ArrayList<>();
 
@@ -36,7 +50,7 @@ public class QueryController {
 
         if (dimensions != null && dimensions.isArray()) {
             for (JsonNode dimension : dimensions) {
-                String field = dimension.asText();
+                String field = quoteIdentifier(validateIdentifier(dimension.asText(), "dimension field"));
 
                 selectParts.add(field);
                 groupByParts.add(field);
@@ -48,9 +62,9 @@ public class QueryController {
 
         if (measures != null && measures.isArray()) {
             for (JsonNode measure : measures) {
-                String field = measure.get("field").asText();
-                String aggregation = measure.get("aggregation").asText();
-                String alias = measure.get("alias").asText();
+                String field = quoteIdentifier(validateIdentifier(measure.get("field").asText(), "measure field"));
+                String aggregation = validateAggregation(measure.get("aggregation").asText());
+                String alias = quoteIdentifier(validateIdentifier(measure.get("alias").asText(), "measure alias"));
 
                 String measureExpression = aggregation + "(" + field + ") AS " + alias;
                 selectParts.add(measureExpression);
@@ -76,7 +90,7 @@ public class QueryController {
 
         if (filters != null && filters.has("rules")) {
             String condition = filters.has("condition")
-                    ? filters.get("condition").asText()
+                    ? validateLogicalConnector(filters.get("condition").asText())
                     : "AND";
 
             List<String> whereParts = new ArrayList<>();
@@ -84,32 +98,31 @@ public class QueryController {
             JsonNode rules = filters.get("rules");
 
             for (JsonNode rule : rules) {
-                String field = rule.get("field").asText();
+                String field = quoteIdentifier(validateIdentifier(rule.get("field").asText(), "filter field"));
                 String operator = cleanOperator(rule.get("operator").asText());
 
                 if (operator.equalsIgnoreCase("IN")) {
 
-                    List<String> values = new ArrayList<>();
+                    List<String> placeholders = new ArrayList<>();
 
                     for (JsonNode value : rule.get("values")) {
-                        values.add(formatValue(value));
+                        placeholders.add("?");
+                        params.add(valueOf(value));
                     }
 
-                    whereParts.add(field + " IN (" + String.join(", ", values) + ")");
+                    whereParts.add(field + " IN (" + String.join(", ", placeholders) + ")");
 
                 } else if (operator.equalsIgnoreCase("BETWEEN")) {
 
-                    String from = rule.get("from").asText();
-                    String to = rule.get("to").asText();
-
-                    whereParts.add(field + " BETWEEN '" + from + "' AND '" + to + "'");
+                    whereParts.add(field + " BETWEEN ? AND ?");
+                    params.add(rule.get("from").asText());
+                    params.add(rule.get("to").asText());
 
                 } else {
 
                     JsonNode valueNode = rule.get("value");
-                    String value = formatValue(valueNode);
-
-                    whereParts.add(field + " " + operator + " " + value);
+                    whereParts.add(field + " " + operator + " ?");
+                    params.add(valueOf(valueNode));
                 }
             }
 
@@ -132,13 +145,12 @@ public class QueryController {
             List<String> havingParts = new ArrayList<>();
 
             for (JsonNode rule : having) {
-                String measure = rule.get("measure").asText();
+                String measure = quoteIdentifier(validateIdentifier(rule.get("measure").asText(), "having measure"));
                 String operator = cleanOperator(rule.get("operator").asText());
                 JsonNode valueNode = rule.get("value");
 
-                String value = formatValue(valueNode);
-
-                havingParts.add(measure + " " + operator + " " + value);
+                havingParts.add(measure + " " + operator + " ?");
+                params.add(valueOf(valueNode));
             }
 
             if (!havingParts.isEmpty()) {
@@ -154,8 +166,8 @@ public class QueryController {
             List<String> orderParts = new ArrayList<>();
 
             for (JsonNode sort : sorting) {
-                String field = sort.get("field").asText();
-                String direction = sort.get("direction").asText();
+                String field = quoteIdentifier(validateIdentifier(sort.get("field").asText(), "sort field"));
+                String direction = validateDirection(sort.get("direction").asText());
 
                 orderParts.add(field + " " + direction);
             }
@@ -173,22 +185,67 @@ public class QueryController {
             int top = pagination.has("top") ? pagination.get("top").asInt() : 100;
             int offset = pagination.has("offset") ? pagination.get("offset").asInt() : 0;
 
-            sql.append(" LIMIT ");
-            sql.append(top);
+            sql.append(" LIMIT ?");
+            params.add(top);
 
-            sql.append(" OFFSET ");
-            sql.append(offset);
+            sql.append(" OFFSET ?");
+            params.add(offset);
         }
 
-        return sql.toString();
+        return new GeneratedQuery(sql.toString(), params);
     }
 
-    private static String formatValue(JsonNode valueNode) {
-        if (valueNode.isNumber() || valueNode.isBoolean()) {
-            return valueNode.asText();
+    /** Renders a generated query's SQL with its parameter values inlined, for human-readable preview only — never executed. */
+    private static String renderPreview(GeneratedQuery query) {
+        String sql = query.sql();
+        for (Object param : query.params()) {
+            String literal = (param instanceof Number || param instanceof Boolean)
+                    ? String.valueOf(param)
+                    : "'" + String.valueOf(param).replace("'", "''") + "'";
+            sql = sql.replaceFirst("\\?", java.util.regex.Matcher.quoteReplacement(literal));
         }
+        return sql;
+    }
 
-        return "'" + valueNode.asText().replace("'", "''") + "'";
+    private static Object valueOf(JsonNode valueNode) {
+        if (valueNode.isNumber()) return valueNode.numberValue();
+        if (valueNode.isBoolean()) return valueNode.booleanValue();
+        return valueNode.asText();
+    }
+
+    private static String validateIdentifier(String identifier, String kind) {
+        if (identifier == null || !SAFE_IDENTIFIER.matcher(identifier).matches()) {
+            throw new IllegalArgumentException("Invalid " + kind + " name: " + identifier);
+        }
+        return identifier;
+    }
+
+    private static String quoteIdentifier(String identifier) {
+        return "\"" + identifier.replace("\"", "\"\"") + "\"";
+    }
+
+    private static String validateAggregation(String aggregation) {
+        String upper = aggregation == null ? "" : aggregation.toUpperCase();
+        if (!VALID_AGGREGATIONS.contains(upper)) {
+            throw new IllegalArgumentException("Invalid aggregation: " + aggregation);
+        }
+        return upper;
+    }
+
+    private static String validateDirection(String direction) {
+        String upper = direction == null ? "" : direction.toUpperCase();
+        if (!VALID_DIRECTIONS.contains(upper)) {
+            throw new IllegalArgumentException("Invalid sort direction: " + direction);
+        }
+        return upper;
+    }
+
+    private static String validateLogicalConnector(String connector) {
+        String upper = connector == null ? "" : connector.toUpperCase();
+        if (!upper.equals("AND") && !upper.equals("OR")) {
+            throw new IllegalArgumentException("Invalid filter condition: " + connector);
+        }
+        return upper;
     }
 
     private static String cleanOperator(String operator) {
@@ -223,10 +280,10 @@ public class QueryController {
     @PostMapping("/generate-query")
     public Map<String, String> generateQuery(@org.springframework.web.bind.annotation.RequestBody JsonNode config) {
 
-        String sql = generateSql(config);
+        GeneratedQuery query = generateSql(config);
 
         return Map.of(
-                "generatedSql", sql
+                "generatedSql", renderPreview(query)
         );
     }
 
@@ -254,15 +311,19 @@ public class QueryController {
     )
     @PostMapping("/execute-query")
     public Map<String, Object> executeQuery(@org.springframework.web.bind.annotation.RequestBody JsonNode config) {
-        System.out.println("Received config: " + config.toString());
-        String sql = generateSql(config);
+        GeneratedQuery query = generateSql(config);
 
-        List<Map<String, Object>> result = jdbcTemplate.queryForList(sql);
+        List<Map<String, Object>> result = jdbcTemplate.queryForList(query.sql(), query.params().toArray());
 
         Map<String, Object> response = new LinkedHashMap<>();
-        response.put("generatedSql", sql);
+        response.put("generatedSql", renderPreview(query));
         response.put("data", result);
 
         return response;
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public org.springframework.http.ResponseEntity<Map<String, String>> handleBadRequest(IllegalArgumentException ex) {
+        return org.springframework.http.ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
     }
 }
