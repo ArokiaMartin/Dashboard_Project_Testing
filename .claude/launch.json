@@ -4,7 +4,7 @@
     {
       "name": "angular-dashboard",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["start"],
+      "runtimeArgs": ["--prefix", "frontend", "start"],
       "port": 4200
     }
   ]
