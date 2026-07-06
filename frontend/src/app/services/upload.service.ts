@@ -1,6 +1,8 @@
 import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import * as XLSX from 'xlsx';
 import { DataTable } from '../models';
+import { environment } from '../../environments/environment';
 
 type Cell = string | number;
 
@@ -14,10 +16,25 @@ export class UploadService {
   tables: DataTable[] = [];
   fileName = '';
 
+  constructor(private http: HttpClient) {}
+
   get hasData(): boolean { return this.tables.length > 0; }
 
-  /** Entry point: detect the format by extension and parse. */
+  /** Send the file to the backend upload endpoint. */
+  async uploadToBackend(file: File): Promise<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await this.http.post<any>(`${environment.apiUrl}/upload`, formData).toPromise();
+    return response;
+  }
+
+  /** Entry point: send to backend AND detect the format by extension to parse locally. */
   async parse(file: File): Promise<DataTable[]> {
+    try {
+      await this.uploadToBackend(file);
+    } catch (error) {
+      console.error('Failed to upload to backend:', error);
+    }
     const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
     let tables: DataTable[];
 

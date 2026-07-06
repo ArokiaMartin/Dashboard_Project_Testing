@@ -40,7 +40,7 @@ public class CsvIngestionService {
 
             String tableName = fileName;
             UUID uploadId = UUID.randomUUID();
-            UUID userId = UUID.randomUUID();
+            UUID userId = DatasetController.USER_123;
 
             try (
                     InputStreamReader reader = new InputStreamReader(

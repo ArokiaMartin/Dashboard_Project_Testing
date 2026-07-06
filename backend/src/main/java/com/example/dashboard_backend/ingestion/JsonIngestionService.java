@@ -790,9 +790,13 @@ public class JsonIngestionService {
 
     private UUID parseUserId(String userId) {
         if (userId == null || userId.isBlank()) {
-            return UUID.randomUUID();
+            return DatasetController.USER_123;
         }
-        return UUID.fromString(userId);
+        try {
+            return UUID.fromString(userId);
+        } catch (IllegalArgumentException e) {
+            return DatasetController.USER_123;
+        }
     }
 
     private Map<String, String> uniqueNormalizedNames(List<String> originalFields) {

@@ -1,12 +1,16 @@
-import { Component } from '@angular/core';
+﻿import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { UploadService } from '../../services/upload.service';
+import { HttpClient } from '@angular/common/http';
+import { environment } from '../../../environments/environment';
 
-interface DataTable {
-  name: string;
-  columns: string[];
-  types: ('num' | 'text' | 'money' | 'date')[];
-  rows: any[][];
+interface Dataset {
+  id: string;
+  table_name: string;
+  original_filename: string;
+  row_count: number;
+  column_count: number;
+  status: string;
+  created_at: string;
 }
 
 @Component({
@@ -18,79 +22,87 @@ interface DataTable {
       <!-- Header -->
       <div class="head">
         <div>
-          <div class="crumbs">Data <span>/</span> <b>Uploaded Report</b></div>
+          <div class="crumbs">Data <span>/</span> <b>Uploaded Datasets</b></div>
           <h1>Uploaded Data</h1>
-          <p class="sub">Parsed from <b>{{ fileName }}</b> — {{ tables.length }} table{{ tables.length === 1 ? '' : 's' }} auto-detected</p>
+          <p class="sub" *ngIf="loading">Loading datasets…</p>
+          <p class="sub" *ngIf="!loading">{{ datasets.length }} dataset{{ datasets.length === 1 ? '' : 's' }} — user_123</p>
         </div>
         <div class="head-actions">
-          <button class="btn ghost">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Export
-          </button>
-          <button class="btn primary">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            Upload New
+          <button class="btn primary" (click)="loadDatasets()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 0 0 4.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 0 1-15.357-2m15.357 2H15"/></svg>
+            Refresh
           </button>
         </div>
       </div>
 
       <!-- Stat cards -->
       <div class="stats">
-        <div class="stat"><span class="stat-label">Tables</span><span class="stat-value">{{ tables.length }}</span></div>
+        <div class="stat"><span class="stat-label">Datasets</span><span class="stat-value">{{ datasets.length }}</span></div>
         <div class="stat"><span class="stat-label">Total Rows</span><span class="stat-value">{{ totalRows() }}</span></div>
         <div class="stat"><span class="stat-label">Total Columns</span><span class="stat-value">{{ totalCols() }}</span></div>
-        <div class="stat"><span class="stat-label">File Size</span><span class="stat-value">8.2 MB</span></div>
+        <div class="stat"><span class="stat-label">User</span><span class="stat-value" style="font-size:15px;letter-spacing:0">user_123</span></div>
+      </div>
+
+            <!-- Empty state -->
+      <div class="empty-state" *ngIf="!loading && datasets.length === 0">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5"><path d="M3 3h18v18H3z"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+        <p>No datasets found. Upload a file from the Home page to get started.</p>
       </div>
 
       <!-- Explorer -->
-      <div class="explorer">
-        <!-- Table list -->
+      <div class="explorer" *ngIf="datasets.length > 0">
+        <!-- Dataset list -->
         <aside class="tables-nav">
-          <div class="nav-label">TABLES</div>
-          <button class="tbl-item" *ngFor="let t of tables; let i = index"
+          <div class="nav-label">DATASETS</div>
+          <button class="tbl-item" *ngFor="let d of datasets; let i = index"
                   [class.active]="i === selected" (click)="select(i)">
             <span class="tbl-ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg></span>
-            <span class="tbl-name">{{ t.name }}</span>
-            <span class="tbl-count">{{ t.rows.length }}</span>
+            <span class="tbl-name">{{ d.original_filename }}</span>
+            <span class="tbl-count">{{ d.row_count }}</span>
+            <button class="del-btn" (click)="deleteDataset(i, $event)" title="Delete">&#10005;</button>
           </button>
         </aside>
 
         <!-- Table detail -->
         <section class="detail">
-          <div class="detail-head">
-            <div>
-              <h3>{{ active().name }}</h3>
-              <span class="detail-meta">{{ visibleRows.length }} of {{ active().rows.length }} rows · {{ active().columns.length }} columns</span>
-            </div>
-            <div class="detail-search">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input [value]="search" (input)="onSearch($any($event.target).value)" placeholder="Search rows…" />
-            </div>
-          </div>
+          <div class="loading-rows" *ngIf="loadingRows">Loading rows...</div>
 
-          <!-- column type chips -->
-          <div class="type-chips">
-            <span class="tchip" *ngFor="let c of active().columns; let ci = index" [ngClass]="active().types[ci]">
-              <span class="tdot">{{ typeGlyph(active().types[ci]) }}</span>{{ c }}
-            </span>
-          </div>
+          <ng-container *ngIf="!loadingRows && activeDataset">
+            <div class="detail-head">
+              <div>
+                <h3>{{ activeDataset.original_filename }}</h3>
+                <span class="detail-meta">{{ visibleRows.length }} of {{ activeDataset.row_count }} rows · {{ columns.length }} columns</span>
+              </div>
+              <div class="detail-search">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input [value]="search" (input)="onSearch($any($event.target).value)" placeholder="Search rows..." />
+              </div>
+            </div>
 
-          <div class="table-scroll">
-            <table>
-              <thead>
-                <tr><th class="rownum">#</th><th *ngFor="let c of active().columns">{{ c }}</th></tr>
-              </thead>
-              <tbody>
-                <tr *ngFor="let r of visibleRows; let ri = index">
-                  <td class="rownum">{{ ri + 1 }}</td>
-                  <td *ngFor="let cell of r; let ci = index" [ngClass]="active().types[ci]">{{ cell }}</td>
-                </tr>
-                <tr *ngIf="visibleRows.length === 0">
-                  <td [attr.colspan]="active().columns.length + 1" class="empty">No rows match “{{ search }}”</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+            <!-- column type chips -->
+            <div class="type-chips">
+              <span class="tchip" *ngFor="let c of columns; let ci = index" [ngClass]="typeClass(columnTypes[ci])">
+                <span class="tdot">{{ typeGlyph(columnTypes[ci]) }}</span>{{ c }}
+              </span>
+            </div>
+
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr><th class="rownum">#</th><th *ngFor="let c of columns">{{ c }}</th></tr>
+                </thead>
+                <tbody>
+                  <tr *ngFor="let r of visibleRows; let ri = index">
+                    <td class="rownum">{{ ri + 1 }}</td>
+                    <td *ngFor="let cell of r; let ci = index" [ngClass]="typeClass(columnTypes[ci])">{{ cell }}</td>
+                  </tr>
+                  <tr *ngIf="visibleRows.length === 0">
+                    <td [attr.colspan]="columns.length + 1" class="empty">{{ search ? 'No rows match' : 'No rows found' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </ng-container>
         </section>
       </div>
     </div>
@@ -155,6 +167,13 @@ interface DataTable {
     tbody tr:last-child td { border-bottom: none; }
     .rownum { width: 44px; color: #cbd5e1; font-size: 12px; font-family: 'SF Mono', Monaco, monospace; text-align: right; }
     .empty { text-align: center; color: #94a3b8; padding: 30px; font-style: italic; }
+    .del-btn { background: none; border: none; color: #cbd5e1; font-size: 12px; cursor: pointer; padding: 2px 5px; border-radius: 4px; flex-shrink: 0; line-height: 1; }
+    .del-btn:hover { color: #ef4444; background: #fef2f2; }
+    .tbl-item.active .del-btn { color: #93c5fd; }
+    .tbl-item.active .del-btn:hover { color: #ef4444; background: #fef2f2; }
+    .loading-rows { padding: 40px; text-align: center; color: #94a3b8; font-size: 14px; }
+    .empty-state { text-align: center; padding: 60px 20px; color: #94a3b8; }
+    .empty-state p { margin-top: 14px; font-size: 14px; }
 
     @media (max-width: 900px) {
       .stats { grid-template-columns: repeat(2, 1fr); }
@@ -163,91 +182,96 @@ interface DataTable {
     }
   `]
 })
-export class DataExplorerComponent {
+export class DataExplorerComponent implements OnInit {
+  datasets: Dataset[] = [];
   selected = 0;
   search = '';
-
-  tables: DataTable[] = [
-    {
-      name: 'summary',
-      columns: ['blockers', 'severe', 'major', 'costUsd', 'generatedAt'],
-      types: ['num', 'num', 'num', 'money', 'date'],
-      rows: [[12, 34, 56, '$125,000', '2023-10-24']]
-    },
-    {
-      name: 'findings',
-      columns: ['id', 'title', 'severity', 'department', 'status'],
-      types: ['text', 'text', 'text', 'text', 'text'],
-      rows: [
-        ['F-001', 'Login timeout under load', 'Critical', 'Engineering', 'Open'],
-        ['F-002', 'Missing alt text on charts', 'Major', 'Design', 'Open'],
-        ['F-003', 'Slow query on reports', 'Severe', 'Engineering', 'In Review'],
-        ['F-004', 'Expired TLS certificate', 'Critical', 'IT', 'Resolved'],
-        ['F-005', 'Incorrect tax rounding', 'Major', 'Finance', 'Open'],
-        ['F-006', 'Broken export to CSV', 'Severe', 'Engineering', 'Open'],
-        ['F-007', 'Session not invalidated', 'Critical', 'Security', 'In Review'],
-        ['F-008', 'Chart legend overlap', 'Minor', 'Design', 'Resolved']
-      ]
-    },
-    {
-      name: 'plan',
-      columns: ['phase', 'owner', 'dueDate', 'progress'],
-      types: ['text', 'text', 'date', 'text'],
-      rows: [
-        ['Discovery', 'A. Sterling', '2023-11-01', '100%'],
-        ['Remediation', 'J. Lee', '2023-11-20', '60%'],
-        ['Verification', 'M. Ortiz', '2023-12-05', '10%'],
-        ['Sign-off', 'A. Sterling', '2023-12-15', '0%']
-      ]
-    },
-    {
-      name: 'cost',
-      columns: ['item', 'category', 'amountUsd'],
-      types: ['text', 'text', 'money'],
-      rows: [
-        ['External audit', 'Services', '$45,000'],
-        ['Tooling licenses', 'Software', '$28,500'],
-        ['Engineering hours', 'Labor', '$51,500'],
-        ['Training', 'Services', '$8,200'],
-        ['Contingency', 'Reserve', '$12,000']
-      ]
-    },
-    {
-      name: 'metadata',
-      columns: ['key', 'value'],
-      types: ['text', 'text'],
-      rows: [
-        ['reportVersion', '2.4.1'],
-        ['source', 'Hyland Compliance Scan'],
-        ['region', 'EMEA'],
-        ['recordCount', '1,284'],
-        ['scanDurationMs', '48,210'],
-        ['analyst', 'Alexander S.']
-      ]
-    }
-  ];
-
+  loading = false;
+  loadingRows = false;
+  columns: string[] = [];
+  columnTypes: string[] = [];
+  rows: any[][] = [];
   visibleRows: any[][] = [];
-  fileName = 'sample_report.json';
 
-  constructor(private upload: UploadService) {
-    if (this.upload.hasData) {
-      this.tables = this.upload.tables as DataTable[];
-      this.fileName = this.upload.fileName;
-    }
-    this.refresh();
+  constructor(private http: HttpClient) {}
+
+  ngOnInit() { this.loadDatasets(); }
+
+  loadDatasets() {
+    this.loading = true;
+    this.http.get<Dataset[]>(`${environment.apiUrl}/datasets`).subscribe({
+      next: (data) => {
+        this.datasets = data || [];
+        this.loading = false;
+        if (this.datasets.length > 0) { this.select(0); }
+      },
+      error: () => { this.loading = false; }
+    });
   }
 
-  active(): DataTable { return this.tables[this.selected]; }
-  select(i: number) { this.selected = i; this.search = ''; this.refresh(); }
-  onSearch(v: string) { this.search = v; this.refresh(); }
-  totalRows(): number { return this.tables.reduce((a, t) => a + t.rows.length, 0); }
-  totalCols(): number { return this.tables.reduce((a, t) => a + t.columns.length, 0); }
-  typeGlyph(t: string): string { return t === 'money' ? '$' : t === 'num' ? '#' : t === 'date' ? '◷' : 'A'; }
+  select(i: number) {
+    this.selected = i;
+    this.search = '';
+    this.columns = []; this.columnTypes = []; this.rows = []; this.visibleRows = [];
+    const ds = this.datasets[i];
+    if (!ds) return;
+    this.loadingRows = true;
+    this.http.get<{ columns: string[], types: string[], rows: any[] }>(
+      `${environment.apiUrl}/datasets/${ds.id}/rows`
+    ).subscribe({
+      next: (data) => {
+        this.columns = data.columns || [];
+        this.columnTypes = data.types || [];
+        this.rows = (data.rows || []).map((row: any) =>
+          this.columns.map(col => row[col] ?? '')
+        );
+        this.visibleRows = this.rows;
+        this.loadingRows = false;
+      },
+      error: () => { this.loadingRows = false; }
+    });
+  }
 
-  private refresh() {
-    const q = this.search.trim().toLowerCase();
-    this.visibleRows = !q ? this.active().rows
-      : this.active().rows.filter(r => r.some(cell => String(cell).toLowerCase().includes(q)));
+  deleteDataset(i: number, event: MouseEvent) {
+    event.stopPropagation();
+    const ds = this.datasets[i];
+    if (!ds) return;
+    this.http.delete(`${environment.apiUrl}/datasets/${ds.id}`).subscribe({
+      next: () => {
+        this.datasets.splice(i, 1);
+        if (this.datasets.length === 0) {
+          this.columns = []; this.columnTypes = []; this.rows = []; this.visibleRows = [];
+        } else {
+          this.select(Math.min(this.selected, this.datasets.length - 1));
+        }
+      }
+    });
+  }
+
+  onSearch(v: string) {
+    this.search = v;
+    const q = v.trim().toLowerCase();
+    this.visibleRows = !q ? this.rows
+      : this.rows.filter(r => r.some((cell: any) => String(cell).toLowerCase().includes(q)));
+  }
+
+  get activeDataset(): Dataset | null { return this.datasets[this.selected] ?? null; }
+  totalRows(): number { return this.datasets.reduce((a, d) => a + (d.row_count || 0), 0); }
+  totalCols(): number { return this.datasets.reduce((a, d) => a + (d.column_count || 0), 0); }
+
+  typeClass(fieldType: string): string {
+    if (!fieldType) return 'text';
+    const t = fieldType.toLowerCase();
+    if (t === 'numeric') return 'num';
+    if (t === 'date' || t.startsWith('timestamp')) return 'date';
+    return 'text';
+  }
+
+  typeGlyph(fieldType: string): string {
+    if (!fieldType) return 'A';
+    const t = fieldType.toLowerCase();
+    if (t === 'numeric') return '#';
+    if (t === 'date' || t.startsWith('timestamp')) return '◷';
+    return 'A';
   }
 }

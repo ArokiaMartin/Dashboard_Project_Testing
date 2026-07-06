@@ -1,0 +1,108 @@
+# =========================
+# Maven
+# =========================
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# Maven Wrapper
+.mvn/wrapper/maven-wrapper.jar
+
+# =========================
+# Java
+# =========================
+*.class
+*.log
+*.ctxt
+*.jar
+*.war
+*.ear
+
+# =========================
+# Spring Boot
+# =========================
+logs/
+temp/
+tmp/
+*.pid
+*.pid.lock
+
+# Environment Variables
+.env
+.env.*
+
+# Application Secrets
+application-local.properties
+application-local.yml
+application-secret.properties
+application-secret.yml
+
+# =========================
+# IntelliJ IDEA
+# =========================
+.idea/
+*.iml
+
+# =========================
+# Eclipse / STS
+# =========================
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings/
+.springBeans
+.sts4-cache/
+
+# =========================
+# VS Code
+# =========================
+.vscode/
+
+# =========================
+# Node / Angular
+# =========================
+node_modules/
+dist/
+.angular/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =========================
+# OS Files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Generated Reports
+# =========================
+reports/
+test-output/
+allure-results/
+allure-report/
+
+# =========================
+# Uploads / Generated Data
+# =========================
+uploads/
+generated/
+export/
+csv/
+json/
+
+# =========================
+# Database Files
+# =========================
+*.db
+*.sqlite
+*.sqlite3
+
+# =========================
+# Temporary Files
+# =========================
+*.tmp
+*.temp
+*.swp
+*.bak
