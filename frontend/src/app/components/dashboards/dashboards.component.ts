@@ -1,8 +1,10 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
+import { DashboardRecord, DashboardService } from '../../services/dashboard.service';
 
 interface DashItem {
+  id: string;
   name: string;
   desc: string;
   edited: string;
@@ -27,8 +29,12 @@ interface DashItem {
         </button>
       </div>
 
-      <div class="grid">
-        <div class="dash" *ngFor="let d of dashboards" routerLink="/preview">
+      <p class="state" *ngIf="loading">Loading dashboards from database...</p>
+      <p class="state error" *ngIf="!loading && error">{{ error }}</p>
+      <p class="state" *ngIf="!loading && !error && dashboards.length === 0">No dashboards saved yet.</p>
+
+      <div class="grid" *ngIf="!loading && !error && dashboards.length > 0">
+        <div class="dash" *ngFor="let d of dashboards" (click)="openDashboard(d)">
           <div class="thumb" [style.background]="d.thumb">
             <svg viewBox="0 0 200 96" class="thumb-svg" preserveAspectRatio="none">
               <rect x="16" y="52" width="16" height="36" rx="3" fill="rgba(255,255,255,.5)"/>
@@ -48,8 +54,8 @@ interface DashItem {
             </div>
           </div>
           <div class="actions">
-            <button class="a">Edit</button>
-            <button class="a ghost">Share</button>
+            <button class="a" (click)="openDashboard(d); $event.stopPropagation()">Edit</button>
+            <button class="a ghost" (click)="$event.stopPropagation()">Share</button>
           </div>
         </div>
       </div>
@@ -63,6 +69,9 @@ interface DashItem {
     .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; }
     .btn.primary { background: #2563eb; color: white; }
     .btn.primary:hover { background: #1d4ed8; }
+
+    .state { margin: 4px 0 18px; color: #64748b; font-size: 14px; }
+    .state.error { color: #b91c1c; }
 
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 22px; }
     .dash { background: white; border: 1px solid #e8ebf2; border-radius: 16px; overflow: hidden; cursor: pointer; transition: all 0.2s ease; }
@@ -82,12 +91,78 @@ interface DashItem {
   `]
 })
 export class DashboardsComponent {
-  dashboards: DashItem[] = [
-    { name: 'Accessibility', desc: 'System availability & uptime metrics', edited: '2h ago', views: 143, thumb: 'linear-gradient(135deg,#8ea2c9,#aab8d6)' },
-    { name: 'Sales Performance', desc: 'Revenue, conversions & pipeline', edited: '1d ago', views: 287, thumb: 'linear-gradient(135deg,#1e293b,#334155)' },
-    { name: 'Inventory Audit', desc: 'Stock levels & distribution', edited: '3d ago', views: 64, thumb: 'linear-gradient(135deg,#1e3a8a,#2563eb)' },
-    { name: 'Customer Analytics', desc: 'Behavior & engagement signals', edited: '5d ago', views: 412, thumb: 'linear-gradient(135deg,#0f766e,#14b8a6)' },
-    { name: 'Financial Overview', desc: 'Budget, expenses & forecasts', edited: '1w ago', views: 521, thumb: 'linear-gradient(135deg,#7c3aed,#a78bfa)' },
-    { name: 'Operations', desc: 'Process metrics & KPIs', edited: '2w ago', views: 89, thumb: 'linear-gradient(135deg,#b45309,#f59e0b)' }
+  dashboards: DashItem[] = [];
+  loading = true;
+  error = '';
+
+  private readonly cardGradients = [
+    'linear-gradient(135deg,#1e3a8a,#2563eb)',
+    'linear-gradient(135deg,#1e293b,#334155)',
+    'linear-gradient(135deg,#0f766e,#14b8a6)',
+    'linear-gradient(135deg,#b45309,#f59e0b)',
+    'linear-gradient(135deg,#065f46,#10b981)'
   ];
+
+  constructor(private dashboardService: DashboardService, private router: Router) {
+    this.loadDashboards();
+  }
+
+  private loadDashboards(): void {
+    this.loading = true;
+    this.error = '';
+
+    this.dashboardService.listDashboardRecords('anonymous').subscribe({
+      next: (records) => {
+        this.dashboards = records.map((record, index) => this.mapRecordToCard(record, index));
+        this.loading = false;
+      },
+      error: () => {
+        this.error = 'Unable to load dashboards from database.';
+        this.loading = false;
+      }
+    });
+  }
+
+  private mapRecordToCard(record: DashboardRecord, index: number): DashItem {
+    return {
+      id: record.dashboard_id,
+      name: record.name,
+      desc: record.description || 'Saved dashboard',
+      edited: this.formatEdited(record.updated_at || record.created_at),
+      views: record.widgets?.length || 0,
+      thumb: this.cardGradients[index % this.cardGradients.length]
+    };
+  }
+
+  openDashboard(item: DashItem): void {
+    this.router.navigate(['/builder'], { queryParams: { dashboardId: item.id } });
+  }
+
+  private formatEdited(value: string): string {
+    const updatedAt = new Date(value).getTime();
+    if (!Number.isFinite(updatedAt)) {
+      return 'recently';
+    }
+
+    const elapsedMs = Date.now() - updatedAt;
+    const minute = 60 * 1000;
+    const hour = 60 * minute;
+    const day = 24 * hour;
+
+    if (elapsedMs < hour) {
+      const mins = Math.max(1, Math.floor(elapsedMs / minute));
+      return `${mins}m ago`;
+    }
+
+    if (elapsedMs < day) {
+      return `${Math.floor(elapsedMs / hour)}h ago`;
+    }
+
+    const days = Math.floor(elapsedMs / day);
+    if (days < 7) {
+      return `${days}d ago`;
+    }
+
+    return `${Math.floor(days / 7)}w ago`;
+  }
 }

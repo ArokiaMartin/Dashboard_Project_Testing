@@ -3,6 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, BehaviorSubject } from 'rxjs';
 import { tap, catchError } from 'rxjs/operators';
 import { of } from 'rxjs';
+import { environment } from '../../environments/environment';
 import {
   Dashboard,
   DashboardResponse,
@@ -14,14 +15,62 @@ import {
   PaginatedData
 } from '../types/dashboard.types';
 
+export interface DashboardWidgetRecord {
+  widget_name: string;
+  layout_json: Record<string, unknown>;
+  chart_config_json: Record<string, unknown>;
+  database_config_json: Record<string, unknown>;
+}
+
+export interface DashboardRecord {
+  dashboard_id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+  widgets?: DashboardWidgetRecord[];
+}
+
+export interface SaveDashboardRequest {
+  user_id: string;
+  name: string;
+  description?: string;
+  widgets: DashboardWidgetRecord[];
+}
+
 @Injectable({
   providedIn: 'root'
 })
 export class DashboardService {
-  private apiUrl = 'http://localhost:5000/api';
+  private apiUrl = environment.apiUrl;
   private currentDashboard$ = new BehaviorSubject<Dashboard | null>(null);
 
   constructor(private http: HttpClient) {}
+
+  /**
+   * Save a dashboard record to the backend database.
+   */
+  createDashboardRecord(payload: SaveDashboardRequest): Observable<DashboardRecord> {
+    return this.http.post<DashboardRecord>(`${this.apiUrl}/dashboards`, payload);
+  }
+
+  /**
+   * List dashboards directly from the backend database.
+   */
+  listDashboardRecords(userId?: string): Observable<DashboardRecord[]> {
+    const endpoint = userId
+      ? `${this.apiUrl}/dashboards/user/${encodeURIComponent(userId)}`
+      : `${this.apiUrl}/dashboards`;
+    return this.http.get<DashboardRecord[]>(endpoint);
+  }
+
+  /**
+   * Load one dashboard record by id.
+   */
+  getDashboardRecord(id: string): Observable<DashboardRecord> {
+    return this.http.get<DashboardRecord>(`${this.apiUrl}/dashboards/${encodeURIComponent(id)}`);
+  }
 
   /**
    * Upload a JSON schema file to initialize dashboard

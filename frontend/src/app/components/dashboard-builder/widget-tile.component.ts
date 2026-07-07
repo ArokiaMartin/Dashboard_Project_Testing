@@ -26,6 +26,7 @@ export interface WidgetSpec {
   kpiLabel?: string;
   tableColumns?: string[];
   tableRows?: (string | number)[][];
+  databaseConfig?: Record<string, unknown>;
 }
 
 const PALETTE = ['#2563eb', '#60a5fa', '#93c5fd', '#1e40af', '#64748b', '#cbd5e1'];

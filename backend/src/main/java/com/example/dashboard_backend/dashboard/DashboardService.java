@@ -193,7 +193,15 @@ public class DashboardService {
                 userId
         );
 
-        return new ArrayList<>(dashboards);
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map<String, Object> dashboardRow : dashboards) {
+            UUID dashboardId = (UUID) dashboardRow.get("dashboard_id");
+            Map<String, Object> mapped = new LinkedHashMap<>(dashboardRow);
+            mapped.put("widgets", getWidgetsForDashboard(dashboardId));
+            result.add(mapped);
+        }
+
+        return result;
     }
 
     private List<Map<String, Object>> getWidgetsForDashboard(UUID dashboardId) {

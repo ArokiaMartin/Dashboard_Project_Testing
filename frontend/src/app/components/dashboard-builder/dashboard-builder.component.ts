@@ -1,11 +1,12 @@
 import { Component, ElementRef, ViewChild, HostListener, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Chart, registerables } from 'chart.js';
 import { WidgetTileComponent, WidgetSpec, Series, buildChartConfig } from './widget-tile.component';
 import { ChartCompatibilityService, Column, VizDef } from '../../services/chart-compatibility.service';
 import { BackendIntegrationService, DatasetSummary } from '../../services/backend-integration.service';
+import { DashboardRecord, DashboardService, SaveDashboardRequest } from '../../services/dashboard.service';
 
 Chart.register(...registerables);
 
@@ -35,9 +36,12 @@ interface ChartMeta { t: WidgetSpec['chartType']; axis: 'x' | 'y'; fill: boolean
         </div>
         <div class="tb-right">
           <button class="tb-text" routerLink="/preview">Preview</button>
-          <button class="tb-save">Save</button>
+          <button class="tb-save" (click)="saveDashboard()" [disabled]="saveBusy || !hasSomethingToSave()">
+            {{ saveBusy ? 'Saving...' : 'Save' }}
+          </button>
         </div>
       </div>
+      <div class="save-banner" *ngIf="saveMessage">{{ saveMessage }}</div>
 
       <div class="body">
         <!-- LEFT: available columns (multi-select) -->
@@ -238,6 +242,8 @@ interface ChartMeta { t: WidgetSpec['chartType']; axis: 'x' | 'y'; fill: boolean
     .tb-text:hover { color: #2563eb; }
     .tb-save { background: white; border: 1px solid #2563eb; color: #2563eb; padding: 8px 20px; border-radius: 9px; font-size: 13px; font-weight: 600; cursor: pointer; }
     .tb-save:hover { background: #eff6ff; }
+    .tb-save:disabled { opacity: 0.55; cursor: not-allowed; }
+    .save-banner { margin: 10px 20px 0; padding: 9px 12px; border-radius: 9px; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; font-size: 12px; font-weight: 600; }
 
     .body { flex: 1; display: flex; min-height: 0; }
 
@@ -397,6 +403,10 @@ export class DashboardBuilderComponent implements OnInit {
   previewKpi = 0;
   previewColumns: string[] = [];
   previewRows: (string | number)[][] = [];
+  saveBusy = false;
+  saveMessage = '';
+  private pendingDashboardId: string | null = null;
+  private dashboardLoadedFromRoute = false;
 
   railWidth = 240;
   dragging = false;
@@ -412,11 +422,19 @@ export class DashboardBuilderComponent implements OnInit {
     if (this._canvas) setTimeout(() => this.renderChart(), 0);
   }
 
-  constructor(public compat: ChartCompatibilityService, private sanitizer: DomSanitizer, private backend: BackendIntegrationService) {
+  constructor(
+    public compat: ChartCompatibilityService,
+    private sanitizer: DomSanitizer,
+    private backend: BackendIntegrationService,
+    private dashboardService: DashboardService,
+    private route: ActivatedRoute,
+    private router: Router
+  ) {
     this.vizCards = compat.vizTypes.map(v => ({ ...v, iconSafe: this.sanitizer.bypassSecurityTrustHtml(v.icon) }));
   }
 
   ngOnInit(): void {
+    this.pendingDashboardId = this.route.snapshot.queryParamMap.get('dashboardId');
     this.loadDatasets();
   }
 
@@ -430,32 +448,132 @@ export class DashboardBuilderComponent implements OnInit {
       this.datasetError = 'Could not reach the backend (localhost:8081) — showing demo columns.';
     } finally {
       this.loadingDatasets = false;
+      this.tryLoadDashboardFromRoute();
     }
   }
 
-  /** Loads the chosen dataset's real columns + rows from the database and rebuilds the picker around them. */
-  async onDatasetChange(e: Event): Promise<void> {
-    const id = (e.target as HTMLSelectElement).value;
+  private tryLoadDashboardFromRoute(): void {
+    if (this.dashboardLoadedFromRoute || !this.pendingDashboardId || this.loadingDatasets) {
+      return;
+    }
+
+    this.dashboardLoadedFromRoute = true;
+    this.dashboardService.getDashboardRecord(this.pendingDashboardId).subscribe({
+      next: async (dashboard) => {
+        await this.restoreDashboardState(dashboard);
+        this.saveMessage = `Loaded dashboard: ${dashboard.name}`;
+      },
+      error: () => {
+        this.saveMessage = 'Could not load selected dashboard.';
+      }
+    });
+  }
+
+  private async activateDatasetById(id: string, resetState: boolean): Promise<void> {
     this.selectedDatasetId = id;
-    this.startOver();
+    if (resetState) {
+      this.startOver();
+    }
     this.uploadId = id || null;
-    this.serverAgg = null; this.serverLabels = null; this.serverKpi = null;
+    this.serverAgg = null;
+    this.serverLabels = null;
+    this.serverKpi = null;
+
     if (!id) {
       this.realRows = null;
       this.compat.useDemoColumns();
       return;
     }
+
+    const data = await this.backend.getDatasetData(id, 10000);
+    this.realRows = data.rows;
+    const cols = data.columns.map((name, i) => ({ name, type: data.types[i] }));
+    const label = this.datasets.find(d => d.id === id)?.original_filename ?? id;
+    this.compat.useRealColumns(label, cols);
+  }
+
+  /** Loads the chosen dataset's real columns + rows from the database and rebuilds the picker around them. */
+  async onDatasetChange(e: Event): Promise<void> {
+    const id = (e.target as HTMLSelectElement).value;
     try {
-      // Fetch a generous row set so Scatter/Table (which use raw rows, not the server aggregate) aren't capped at 500.
-      const data = await this.backend.getDatasetData(id, 10000);
-      this.realRows = data.rows;
-      const cols = data.columns.map((name, i) => ({ name, type: data.types[i] }));
-      const label = this.datasets.find(d => d.id === id)?.original_filename ?? id;
-      this.compat.useRealColumns(label, cols);
+      await this.activateDatasetById(id, true);
     } catch {
       this.realRows = null;
       this.datasetError = 'Could not load that dataset.';
     }
+  }
+
+  private parseChartType(raw: unknown): WidgetSpec['chartType'] {
+    const chart = String(raw ?? '');
+    if (chart === 'bar' || chart === 'line' || chart === 'doughnut' || chart === 'pie' || chart === 'radar' || chart === 'polarArea' || chart === 'scatter') {
+      return chart;
+    }
+    return null;
+  }
+
+  private restoreWidget(index: number, widget: { chart_config_json?: Record<string, unknown>; database_config_json?: Record<string, unknown>; widget_name?: string; }): WidgetSpec | null {
+    const chart = widget.chart_config_json ?? {};
+    const style = (chart['style'] as Record<string, unknown> | undefined) ?? {};
+    const datasets = Array.isArray(chart['datasets']) ? chart['datasets'] as Series[] : [];
+    const labels = Array.isArray(chart['labels']) ? chart['labels'].map((l) => String(l)) : [];
+    const tableColumns = Array.isArray(chart['tableColumns']) ? chart['tableColumns'].map((c) => String(c)) : [];
+    const tableRows = Array.isArray(chart['tableRows']) ? chart['tableRows'].map((row) => Array.isArray(row) ? row.map((v) => (typeof v === 'number' || typeof v === 'string') ? v : String(v ?? '')) : []) : [];
+    const viz = String(chart['viz'] ?? 'table');
+
+    return {
+      id: index + 1,
+      viz,
+      title: String(chart['title'] ?? widget.widget_name ?? 'Widget'),
+      chartType: this.parseChartType(chart['chartType']),
+      labels,
+      datasets,
+      points: Array.isArray(chart['points']) ? chart['points'] as { x: number; y: number }[] : undefined,
+      primary: String(style['primary'] ?? this.palette[0]),
+      fill: Boolean(style['fill'] ?? false),
+      multiColor: Boolean(style['multiColor'] ?? false),
+      radial: Boolean(style['radial'] ?? false),
+      indexAxis: style['indexAxis'] === 'y' ? 'y' : 'x',
+      showLegend: Boolean(style['showLegend'] ?? false),
+      legendPosition: style['legendPosition'] === 'right' || style['legendPosition'] === 'top' ? style['legendPosition'] as 'bottom' | 'right' | 'top' : 'bottom',
+      stacked: Boolean(style['stacked'] ?? false),
+      kpiTotal: typeof chart['kpiTotal'] === 'number' ? chart['kpiTotal'] as number : undefined,
+      kpiLabel: chart['kpiLabel'] ? String(chart['kpiLabel']) : undefined,
+      tableColumns,
+      tableRows,
+      databaseConfig: widget.database_config_json
+    };
+  }
+
+  private async restoreDashboardState(dashboard: DashboardRecord): Promise<void> {
+    this.saveMessage = '';
+    this.startOver();
+    this.committedWidgets = [];
+
+    const widgets = dashboard.widgets ?? [];
+    if (!widgets.length) {
+      return;
+    }
+
+    const firstDbConfig = (widgets[0].database_config_json ?? {}) as Record<string, unknown>;
+    const datasetTable = String(firstDbConfig['dataset'] ?? '');
+    if (datasetTable) {
+      const dataset = this.datasets.find((d) => d.table_name === datasetTable);
+      if (dataset) {
+        try {
+          await this.activateDatasetById(dataset.id, false);
+        } catch {
+          this.datasetError = 'Dashboard loaded, but source dataset could not be restored.';
+        }
+      }
+    }
+
+    const restored = widgets
+      .map((widget, index) => this.restoreWidget(index, widget))
+      .filter((w): w is WidgetSpec => w !== null);
+
+    this.committedWidgets = restored;
+    this.widgetSeq = restored.reduce((max, w) => Math.max(max, w.id), 0);
+    this.refreshPreview();
   }
 
   /**
@@ -575,10 +693,146 @@ export class DashboardBuilderComponent implements OnInit {
     if (this.hasColumns() && this.selectedViz && this.allowed(this.selectedViz)) {
       const spec = this.specFor();
       spec.id = ++this.widgetSeq;
+      spec.databaseConfig = this.buildQueryBuilderConfig();
       this.committedWidgets.push(spec);
     }
     this.startOver();
   }
+
+  hasSomethingToSave(): boolean {
+    return this.committedWidgets.length > 0 || this.canSaveCurrentSelection();
+  }
+
+  private canSaveCurrentSelection(): boolean {
+    return this.hasColumns() && !!this.selectedViz && this.allowed(this.selectedViz);
+  }
+
+  private toAlias(field: string): string {
+    return field.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+  }
+
+  private buildQueryBuilderConfig(): Record<string, unknown> {
+    const dimensions = this.dimCols().map((d) => d.name);
+    const measures = this.measureCols().map((m) => ({
+      field: m.name,
+      aggregation: this.aggregation.toUpperCase(),
+      alias: `${this.aggregation}_${this.toAlias(m.name)}`
+    }));
+
+    const rules: Array<Record<string, unknown>> = [];
+    const dimName = this.currentDimName();
+    if (dimName) {
+      const allLabels = this.allLabelsForFilter();
+      if (this.activeLabels.length > 0 && this.activeLabels.length < allLabels.length) {
+        rules.push({
+          field: dimName,
+          operator: 'IN',
+          values: this.activeLabels
+        });
+      }
+    }
+
+    const primaryMeasure = this.measureCols()[0]?.name;
+    if (primaryMeasure && this.rangeMin != null) {
+      rules.push({ field: primaryMeasure, operator: '>=', value: this.rangeMin });
+    }
+    if (primaryMeasure && this.rangeMax != null) {
+      rules.push({ field: primaryMeasure, operator: '<=', value: this.rangeMax });
+    }
+
+    let sorting: Array<Record<string, unknown>> = [];
+    let pagination: Record<string, unknown> = { top: 100, offset: 0 };
+    if (primaryMeasure && this.topNOption !== 'all') {
+      const alias = `${this.aggregation}_${this.toAlias(primaryMeasure)}`;
+      const top = this.topNOption === 'top5' ? 5 : 3;
+      const direction = this.topNOption === 'bottom3' ? 'ASC' : 'DESC';
+      sorting = [{ field: alias, direction }];
+      pagination = { top, offset: 0 };
+    }
+
+    const dataset = this.datasets.find((d) => d.id === this.selectedDatasetId)?.table_name ?? '';
+
+    return {
+      dataset,
+      dimensions,
+      measures,
+      filters: { condition: 'AND', rules },
+      having: [],
+      sorting,
+      pagination
+    };
+  }
+
+  saveDashboard() {
+    if (this.saveBusy || !this.hasSomethingToSave()) {
+      return;
+    }
+
+    const suggestedName = `Dashboard ${new Date().toLocaleString()}`;
+    const enteredName = window.prompt('Dashboard name:', suggestedName);
+    if (enteredName === null) {
+      return;
+    }
+
+    const widgetsToSave = this.committedWidgets.length
+      ? this.committedWidgets
+      : (() => {
+          const spec = this.specFor();
+          spec.id = ++this.widgetSeq;
+          spec.databaseConfig = this.buildQueryBuilderConfig();
+          return [spec];
+        })();
+
+    const payload: SaveDashboardRequest = {
+      user_id: 'anonymous',
+      name: enteredName.trim() || suggestedName,
+      description: this.compat.usingRealData
+        ? `Built from ${this.compat.datasetLabel ?? 'dataset'}`
+        : 'Built in demo mode',
+      widgets: widgetsToSave.map((widget) => ({
+        widget_name: widget.title || widget.viz,
+        layout_json: { widget_id: widget.id },
+        chart_config_json: {
+          viz: widget.viz,
+          chartType: widget.chartType,
+          title: widget.title,
+          labels: widget.labels,
+          datasets: widget.datasets,
+          points: widget.points,
+          kpiTotal: widget.kpiTotal,
+          kpiLabel: widget.kpiLabel,
+          tableColumns: widget.tableColumns,
+          tableRows: widget.tableRows,
+          style: {
+            primary: widget.primary,
+            fill: widget.fill,
+            multiColor: widget.multiColor,
+            radial: widget.radial,
+            indexAxis: widget.indexAxis,
+            showLegend: widget.showLegend,
+            legendPosition: widget.legendPosition,
+            stacked: widget.stacked
+          }
+        },
+        database_config_json: widget.databaseConfig || this.buildQueryBuilderConfig()
+      }))
+    };
+
+    this.saveBusy = true;
+    this.saveMessage = 'Saving dashboard...';
+    this.dashboardService.createDashboardRecord(payload).subscribe({
+      next: () => {
+        this.saveBusy = false;
+        this.saveMessage = 'Dashboard saved to database.';
+        this.router.navigate(['/dashboards']);
+      },
+      error: () => {
+        this.saveBusy = false;
+        this.saveMessage = 'Could not save dashboard. Please check backend connection on localhost:8081.';
+      }
+    });
+  }
+
   removeWidget(id: number) { this.committedWidgets = this.committedWidgets.filter(w => w.id !== id); }
 
   setPalette(i: number) { this.selPalette = i; if (this.isChartViz(this.selectedViz)) setTimeout(() => this.renderChart(), 0); }
