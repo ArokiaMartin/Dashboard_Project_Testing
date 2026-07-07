@@ -25,8 +25,7 @@ interface Signature { str: number; num: number; date: number; dim: number; total
  */
 @Injectable({ providedIn: 'root' })
 export class ChartCompatibilityService {
-  /** The columns a user can pick from (demo dataset). */
-  readonly columns: Column[] = [
+  private readonly demoColumns: Column[] = [
     { name: 'Department', type: 'string' },
     { name: 'Region', type: 'string' },
     { name: 'Status', type: 'string' },
@@ -38,6 +37,34 @@ export class ChartCompatibilityService {
     { name: 'costUsd', type: 'number' },
     { name: 'tickets', type: 'number' }
   ];
+
+  /** The columns a user can pick from — demo dataset until a real uploaded table replaces it. */
+  columns: Column[] = [...this.demoColumns];
+
+  /** True once a real dataset (from the database) is active. */
+  usingRealData = false;
+  /** The active dataset's display name, shown in the UI. */
+  datasetLabel: string | null = null;
+
+  /** Replaces the demo columns with a real dataset's columns (backend types: text/numeric/boolean/date). */
+  useRealColumns(datasetLabel: string, columns: { name: string; type: string }[]): void {
+    this.columns = columns.map(c => ({ name: c.name, type: this.mapType(c.type) }));
+    this.usingRealData = true;
+    this.datasetLabel = datasetLabel;
+  }
+
+  /** Reverts to the built-in demo dataset. */
+  useDemoColumns(): void {
+    this.columns = [...this.demoColumns];
+    this.usingRealData = false;
+    this.datasetLabel = null;
+  }
+
+  private mapType(t: string): ColType {
+    if (t === 'numeric' || t === 'number') return 'number';
+    if (t === 'date') return 'date';
+    return 'string';
+  }
 
   readonly vizTypes: VizDef[] = [
     { key: 'kpi', label: 'KPI', desc: 'A single headline metric', requirement: 'Exactly 1 number', icon: `<svg viewBox="0 0 24 24" fill="none"><path d="M4 16a8 8 0 0 1 16 0" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.3"/><path d="M12 16l5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16" r="1.8" fill="currentColor"/></svg>` },

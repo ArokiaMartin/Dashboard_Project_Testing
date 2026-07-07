@@ -1,10 +1,11 @@
-import { Component, ElementRef, ViewChild, HostListener } from '@angular/core';
+import { Component, ElementRef, ViewChild, HostListener, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Chart, registerables } from 'chart.js';
 import { WidgetTileComponent, WidgetSpec, Series, buildChartConfig } from './widget-tile.component';
 import { ChartCompatibilityService, Column, VizDef } from '../../services/chart-compatibility.service';
+import { BackendIntegrationService, DatasetSummary } from '../../services/backend-integration.service';
 
 Chart.register(...registerables);
 
@@ -41,6 +42,17 @@ interface ChartMeta { t: WidgetSpec['chartType']; axis: 'x' | 'y'; fill: boolean
       <div class="body">
         <!-- LEFT: available columns (multi-select) -->
         <aside class="rail" [class.mini]="railWidth < 150" [style.width.px]="railWidth">
+          <div class="rail-head">DATASET</div>
+          <select class="rail-dataset-select" [value]="selectedDatasetId" (change)="onDatasetChange($event)" [disabled]="loadingDatasets">
+            <option value="">— Demo data —</option>
+            <option *ngFor="let d of datasets" [value]="d.id">{{ d.original_filename }} ({{ d.row_count }} rows)</option>
+          </select>
+          <div class="rail-dataset-msg" *ngIf="loadingDatasets">Loading datasets…</div>
+          <div class="rail-dataset-msg warn" *ngIf="datasetError">{{ datasetError }}</div>
+          <div class="rail-dataset" *ngIf="compat.usingRealData">
+            <span class="rail-dataset-dot"></span> Live from database: <strong>{{ compat.datasetLabel }}</strong>
+          </div>
+
           <div class="rail-head">AVAILABLE COLUMNS</div>
           <div class="rail-hint">Pick 2–3 columns to see compatible charts.</div>
           <button class="col-item" *ngFor="let c of compat.columns"
@@ -233,6 +245,14 @@ interface ChartMeta { t: WidgetSpec['chartType']; axis: 'x' | 'y'; fill: boolean
     .rail { background: white; border-right: 1px solid #e8ebf2; padding: 16px 12px; overflow-y: auto; flex-shrink: 0; }
     .rail-head { font-size: 10.5px; font-weight: 700; color: #94a3b8; letter-spacing: 0.6px; padding: 6px 10px 4px; }
     .rail-hint { font-size: 11px; color: #94a3b8; padding: 0 10px 12px; line-height: 1.4; }
+    .rail-dataset-select { width: calc(100% - 20px); margin: 0 10px 8px; padding: 8px 10px; border: 1.5px solid #e2e8f0; border-radius: 9px; font-size: 12.5px; font-weight: 600; color: #0f172a; background: white; cursor: pointer; }
+    .rail-dataset-select:hover { border-color: #93c5fd; }
+    .rail-dataset-msg { font-size: 11px; color: #94a3b8; padding: 0 10px 8px; }
+    .rail-dataset-msg.warn { color: #b45309; }
+    .rail-dataset { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #059669; padding: 0 10px 12px; line-height: 1.4; }
+    .rail-dataset-dot { width: 6px; height: 6px; border-radius: 50%; background: #059669; flex-shrink: 0; }
+    .rail-dataset strong { color: #0f172a; }
+    .rail.mini .rail-dataset-select, .rail.mini .rail-dataset-msg, .rail.mini .rail-dataset { display: none; }
     .col-item { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: white; border: 1.5px solid #e8ebf2; border-radius: 10px; cursor: pointer; text-align: left; margin-bottom: 6px; transition: all 0.15s ease; }
     .col-item:hover { border-color: #93c5fd; background: #f8fbff; }
     .col-item.active { border-color: #2563eb; background: #eff6ff; }
@@ -343,10 +363,28 @@ interface ChartMeta { t: WidgetSpec['chartType']; axis: 'x' | 'y'; fill: boolean
     @media (max-width: 1200px) { .rail { width: 190px; } .right { width: 190px; } }
   `]
 })
-export class DashboardBuilderComponent {
+export class DashboardBuilderComponent implements OnInit {
   selectedCols: Column[] = [];
   selectedViz: string | null = null;
   vizCards: VizCard[];
+
+  // ---- datasets loaded live from the database ----
+  datasets: DatasetSummary[] = [];
+  selectedDatasetId = '';
+  loadingDatasets = false;
+  datasetError = '';
+  /** Real rows for the active dataset (keys = original column names); null in demo mode. Used for scatter/table/fallback. */
+  private realRows: Record<string, unknown>[] | null = null;
+  /** The active dataset's upload id, used for server-side aggregate queries. */
+  private uploadId: string | null = null;
+  /** Server-computed aggregation: dimension value → { measure → aggregated number }. Full dataset, no 500 cap. */
+  private serverAgg: Map<string, Record<string, number>> | null = null;
+  /** Distinct dimension values from the server aggregation (full dataset). */
+  private serverLabels: string[] | null = null;
+  /** Server-computed KPI totals: measure → aggregated number (whole dataset). */
+  private serverKpi: Record<string, number> | null = null;
+  /** Guards against a slow aggregate response overwriting a newer one. */
+  private aggRequestId = 0;
 
   selPalette = 0;
   legendPos = 'Bottom';
@@ -374,8 +412,94 @@ export class DashboardBuilderComponent {
     if (this._canvas) setTimeout(() => this.renderChart(), 0);
   }
 
-  constructor(public compat: ChartCompatibilityService, private sanitizer: DomSanitizer) {
+  constructor(public compat: ChartCompatibilityService, private sanitizer: DomSanitizer, private backend: BackendIntegrationService) {
     this.vizCards = compat.vizTypes.map(v => ({ ...v, iconSafe: this.sanitizer.bypassSecurityTrustHtml(v.icon) }));
+  }
+
+  ngOnInit(): void {
+    this.loadDatasets();
+  }
+
+  /** Loads the list of datasets stored in the database for the picker. */
+  async loadDatasets(): Promise<void> {
+    this.loadingDatasets = true;
+    this.datasetError = '';
+    try {
+      this.datasets = await this.backend.listDatasets();
+    } catch {
+      this.datasetError = 'Could not reach the backend (localhost:8081) — showing demo columns.';
+    } finally {
+      this.loadingDatasets = false;
+    }
+  }
+
+  /** Loads the chosen dataset's real columns + rows from the database and rebuilds the picker around them. */
+  async onDatasetChange(e: Event): Promise<void> {
+    const id = (e.target as HTMLSelectElement).value;
+    this.selectedDatasetId = id;
+    this.startOver();
+    this.uploadId = id || null;
+    this.serverAgg = null; this.serverLabels = null; this.serverKpi = null;
+    if (!id) {
+      this.realRows = null;
+      this.compat.useDemoColumns();
+      return;
+    }
+    try {
+      // Fetch a generous row set so Scatter/Table (which use raw rows, not the server aggregate) aren't capped at 500.
+      const data = await this.backend.getDatasetData(id, 10000);
+      this.realRows = data.rows;
+      const cols = data.columns.map((name, i) => ({ name, type: data.types[i] }));
+      const label = this.datasets.find(d => d.id === id)?.original_filename ?? id;
+      this.compat.useRealColumns(label, cols);
+    } catch {
+      this.realRows = null;
+      this.datasetError = 'Could not load that dataset.';
+    }
+  }
+
+  /**
+   * Asks PostgreSQL to group + aggregate the current dimension/measure selection (full dataset, no
+   * 500-row cap) and stores the result. currentAllLabels()/rawValuesFor()/KPI then prefer this over
+   * the in-browser fallback. Guarded by a request id so a slow response can't overwrite a newer one.
+   */
+  private async refreshServerAgg(): Promise<void> {
+    const requestId = ++this.aggRequestId;
+    this.serverAgg = null; this.serverLabels = null; this.serverKpi = null;
+    if (!this.compat.usingRealData || !this.uploadId) return;
+
+    const dims = this.dimCols();
+    const meas = this.measureCols();
+    if (meas.length === 0) return;                     // nothing numeric to aggregate
+    if (dims.length > 1) return;                       // only single-dimension grouping is supported server-side
+    const agg = this.aggregation.toUpperCase();
+    const measures = meas.map(m => ({ field: m.name, agg }));
+
+    try {
+      const dimName = dims.length === 1 ? dims[0].name : null;
+      const res = await this.backend.aggregate(this.uploadId, { dimension: dimName, measures });
+      if (requestId !== this.aggRequestId) return;     // a newer request superseded this one
+      if (dimName) {
+        const map = new Map<string, Record<string, number>>();
+        const labels: string[] = [];
+        for (const row of res.rows) {
+          const label = String(row[dimName]);
+          const rec: Record<string, number> = {};
+          for (const m of meas) rec[m.name] = Number(row[m.name]) || 0;
+          map.set(label, rec);
+          labels.push(label);
+        }
+        this.serverAgg = map;
+        this.serverLabels = labels;
+      } else {
+        const rec: Record<string, number> = {};
+        for (const m of meas) rec[m.name] = res.rows.length ? Number(res.rows[0][m.name]) || 0 : 0;
+        this.serverKpi = rec;
+      }
+      this.refreshPreview();
+    } catch {
+      // Backend unavailable — fall back to the in-browser aggregation on realRows.
+    }
   }
 
   private meta(viz: string): ChartMeta {
@@ -419,12 +543,14 @@ export class DashboardBuilderComponent {
     // if the current chart is no longer valid for the new selection, clear it
     if (this.selectedViz && !this.allowed(this.selectedViz)) this.selectedViz = null;
     this.syncLabelFilter();
+    this.refreshServerAgg();
     this.refreshPreview();
   }
 
   pickViz(key: string) {
     if (!this.allowed(key)) return;
     this.selectedViz = key;
+    this.refreshServerAgg();
     this.refreshPreview();
   }
 
@@ -441,6 +567,7 @@ export class DashboardBuilderComponent {
     this.previewKpi = 0; this.previewColumns = []; this.previewRows = [];
     this.filterKey = null; this.activeLabels = []; this.granularity = 'monthly'; this.topNOption = 'all';
     this.aggregation = 'sum'; this.rangeMin = null; this.rangeMax = null; this.chipSearch = ''; this.chipsExpanded = false;
+    this.serverAgg = null; this.serverLabels = null; this.serverKpi = null;
     this.destroyChart();
   }
 
@@ -494,6 +621,29 @@ export class DashboardBuilderComponent {
     return dims.length === 1 ? (dims[0].type as 'string' | 'date') : null;
   }
 
+  /** Distinct values of a dimension: server-aggregated (full dataset) if available, else the fetched rows, else demo. */
+  private currentAllLabels(dimName: string): string[] {
+    if (this.serverLabels && this.currentDimName() === dimName) return this.serverLabels;
+    if (this.realRows) {
+      const seen = new Set<string>();
+      const out: string[] = [];
+      for (const row of this.realRows) {
+        const v = row[dimName];
+        if (v === null || v === undefined) continue;
+        const s = String(v);
+        if (!seen.has(s)) { seen.add(s); out.push(s); }
+      }
+      return out;
+    }
+    return this.compat.labelsFor(dimName);
+  }
+
+  /** All numeric values of a measure across the whole real dataset (used for KPI / no-dimension aggregation). */
+  private realMeasureValues(measure: string): number[] {
+    if (!this.realRows) return [];
+    return this.realRows.map(r => Number(r[measure])).filter(n => Number.isFinite(n));
+  }
+
   /** Calendar-correct quarter/half/year key for a label — parses real dates when possible, falls back to month-name matching. */
   private calendarKey(label: string): { quarter: string; half: string; year: string; sortIdx: number } {
     const d = new Date(label);
@@ -510,7 +660,7 @@ export class DashboardBuilderComponent {
   /** Buckets a date dimension's raw labels into quarters/halves/years by real calendar meaning, not array position; null means "use raw labels". */
   private bucketsFor(dimName: string): { label: string; idxs: number[] }[] | null {
     if (this.currentDimType() !== 'date' || this.granularity === 'monthly') return null;
-    const all = this.compat.labelsFor(dimName);
+    const all = this.currentAllLabels(dimName);
     const groups = new Map<string, { idxs: number[]; sortIdx: number }>();
     all.forEach((label, i) => {
       const k = this.calendarKey(label);
@@ -530,11 +680,24 @@ export class DashboardBuilderComponent {
   }
 
   /**
-   * Simulates several underlying rows for one category, so Sum/Average/Min/Max actually differ — stands in for
-   * real row-level aggregation. Mirrors ChartCompatibilityService.valuesFor's magnitude-per-measure logic
-   * directly (rather than delegating to it with a composite key) so costUsd/tickets keep their real scale.
+   * The underlying numeric values for one category of the current dimension + a measure.
+   * Real mode: the actual matching rows from the database. Demo mode: a seeded stand-in so
+   * Sum/Average/Min/Max still differ on the one-value-per-category demo dataset.
    */
   private rawValuesFor(measure: string, category: string): number[] {
+    // Prefer the server-side aggregate (already grouped per category, full dataset).
+    if (this.serverAgg) {
+      const rec = this.serverAgg.get(category);
+      return rec && rec[measure] !== undefined ? [rec[measure]] : [];
+    }
+    if (this.realRows) {
+      const dimName = this.currentDimName();
+      if (!dimName) return [];
+      return this.realRows
+        .filter(r => String(r[dimName]) === category)
+        .map(r => Number(r[measure]))
+        .filter(n => Number.isFinite(n));
+    }
     const base = measure === 'costUsd' ? 4000 : measure === 'tickets' ? 600 : 25;
     let seed = this.hashStr(`${measure}::${category}`);
     const out: number[] = [];
@@ -565,7 +728,7 @@ export class DashboardBuilderComponent {
   /** Resolved x-axis entries (label + contributing source indices), optionally ignoring the active filter. */
   private axisFor(dimName: string, ignoreFilter = false): { label: string; idxs: number[] }[] {
     const buckets = this.bucketsFor(dimName);
-    const all = buckets ?? this.compat.labelsFor(dimName).map((l, i) => ({ label: l, idxs: [i] }));
+    const all = buckets ?? this.currentAllLabels(dimName).map((l, i) => ({ label: l, idxs: [i] }));
     return ignoreFilter ? all : all.filter(a => this.activeLabels.includes(a.label));
   }
 
@@ -619,7 +782,7 @@ export class DashboardBuilderComponent {
       return;
     }
     const axis = this.axisFor(dimName, true);
-    const allLabels = this.compat.labelsFor(dimName);
+    const allLabels = this.currentAllLabels(dimName);
     const scored = axis.map(a => ({ label: a.label, v: this.categoryValue(meas[0].name, a.idxs, allLabels) }));
     scored.sort((a, b) => this.topNOption === 'bottom3' ? a.v - b.v : b.v - a.v);
     const n = this.topNOption === 'top5' ? 5 : 3;
@@ -629,6 +792,7 @@ export class DashboardBuilderComponent {
 
   onAggregationChange(e: Event) {
     this.aggregation = (e.target as HTMLSelectElement).value as typeof this.aggregation;
+    this.refreshServerAgg();
     this.refreshPreview();
   }
 
@@ -643,7 +807,7 @@ export class DashboardBuilderComponent {
     const meas = this.measureCols();
     if (!dimName || !meas.length) return;
     const axis = this.axisFor(dimName, true);
-    const allLabels = this.compat.labelsFor(dimName);
+    const allLabels = this.currentAllLabels(dimName);
     const kept = axis.filter(a => {
       const v = this.categoryValue(meas[0].name, a.idxs, allLabels);
       if (this.rangeMin != null && v < this.rangeMin) return false;
@@ -685,14 +849,28 @@ export class DashboardBuilderComponent {
 
     if (viz === 'kpi') {
       const m = meas[0];
-      return { ...base, title: 'Total ' + m.name, kpiTotal: this.compat.valuesFor(m.name, 6).reduce((a, b) => a + b, 0), kpiLabel: m.name };
+      const total = this.serverKpi && this.serverKpi[m.name] !== undefined
+        ? this.serverKpi[m.name]
+        : this.realRows
+          ? this.aggregateValues(this.realMeasureValues(m.name))
+          : this.compat.valuesFor(m.name, 6).reduce((a, b) => a + b, 0);
+      return { ...base, title: 'Total ' + m.name, kpiTotal: total, kpiLabel: m.name };
     }
 
     if (viz === 'table') {
+      // Real dataset: show the actual rows straight from the database.
+      if (this.realRows) {
+        const columns = this.selectedCols.map(c => c.name);
+        const rows = this.realRows.slice(0, 1000).map(r => this.selectedCols.map(c => {
+          const v = r[c.name];
+          return (typeof v === 'number' || typeof v === 'string') ? v : String(v ?? '');
+        }));
+        return { ...base, title: 'Data table', tableColumns: columns, tableRows: rows };
+      }
       const dim0 = dims[0];
       const axis = dim0 ? this.axisFor(dim0.name) : null;
       const rowLabels = axis ? axis.map(a => a.label) : this.compat.valuesFor(meas[0].name, 6).map((_, i) => `Row ${i + 1}`);
-      const allLabels0 = dim0 ? this.compat.labelsFor(dim0.name) : [];
+      const allLabels0 = dim0 ? this.currentAllLabels(dim0.name) : [];
       const columns = this.selectedCols.map(c => c.name);
       const rows = rowLabels.map((label, ri) => {
         const idxs = axis ? axis[ri].idxs : [ri];
@@ -707,17 +885,24 @@ export class DashboardBuilderComponent {
     const mt = this.meta(viz);
 
     if (viz === 'scatter') {
-      const n = 12;
-      const xs = this.compat.valuesFor(meas[0].name, n);
-      const ys = this.compat.valuesFor(meas[1].name, n);
-      const points = xs.map((x, i) => ({ x, y: ys[i] }));
+      let points: { x: number; y: number }[];
+      if (this.realRows) {
+        points = this.realRows
+          .map(r => ({ x: Number(r[meas[0].name]), y: Number(r[meas[1].name]) }))
+          .filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));
+      } else {
+        const n = 12;
+        const xs = this.compat.valuesFor(meas[0].name, n);
+        const ys = this.compat.valuesFor(meas[1].name, n);
+        points = xs.map((x, i) => ({ x, y: ys[i] }));
+      }
       return { ...base, chartType: 'scatter', title: `${meas[1].name} vs ${meas[0].name}`, points, datasets: [{ label: `${meas[1].name} vs ${meas[0].name}`, data: [] }] };
     }
 
     const dim = dims[0];
     const axis = this.axisFor(dim.name);
     const labels = axis.map(a => a.label);
-    const allLabels = this.compat.labelsFor(dim.name);
+    const allLabels = this.currentAllLabels(dim.name);
     const datasets: Series[] = (mt.multi ? [meas[0]] : meas).map(m => ({
       label: m.name,
       data: axis.map(a => this.categoryValue(m.name, a.idxs, allLabels))

@@ -139,21 +139,20 @@ public class CsvIngestionService {
 
                 for (String originalColumn : headers.keySet()) {
 
-                    /*
-                     * fieldName = original CSV column name
-                     * normalizedFieldName = actual DB column name
-                     *
-                     * So if CSV has "id", response will show:
-                     * fieldName: "id"
-                     * normalizedFieldName: "csv_id"
-                     */
+                    // Infer the column type from its actual values so numeric columns become
+                    // measures (isMeasure) and everything else stays a dimension. Without this,
+                    // every column defaults to text and shows up as a category in the builder.
+                    String fieldType = detectType(distinctValuesMap.get(originalColumn));
+                    boolean isMeasure = "numeric".equals(fieldType);
+                    boolean isDimension = !isMeasure;
+
                     fields.add(
                             new FieldAnalysis(
                                     originalColumn,
                                 originalColumn,
-                                    "STRING",
-                                    true,
-                                    false,
+                                    fieldType,
+                                    isDimension,
+                                    isMeasure,
                                     distinctValuesMap.get(originalColumn).size(),
                                     nullCountMap.get(originalColumn),
                                     null,
@@ -309,4 +308,59 @@ public class CsvIngestionService {
 
         return "\"" + identifier.replace("\"", "\"\"") + "\"";
     }
+
+    /**
+     * Infers a column's type from its distinct non-blank values. Returns one of
+     * "numeric" / "date" / "boolean" / "text" (matching what the JSON service and the frontend expect).
+     * Numeric is checked before boolean so a 0/1 measure column isn't misread as boolean.
+     */
+    private String detectType(Set<String> values) {
+        if (values == null || values.isEmpty()) {
+            return "text";
+        }
+        boolean allNumeric = true, allDate = true, allBoolean = true;
+        for (String raw : values) {
+            String v = raw == null ? "" : raw.trim();
+            if (v.isEmpty()) continue;
+            if (allNumeric && !isNumeric(v)) allNumeric = false;
+            if (allDate && !isDate(v)) allDate = false;
+            if (allBoolean && !isBoolean(v)) allBoolean = false;
+        }
+        if (allNumeric) return "numeric";
+        if (allDate) return "date";
+        if (allBoolean) return "boolean";
+        return "text";
+    }
+
+    private boolean isNumeric(String v) {
+        // No comma-stripping: a value counts as numeric only if it's parseable as-is, matching
+        // what the frontend's Number() can handle — otherwise "1,200" would be flagged numeric
+        // but render as NaN/0 in charts.
+        try { Double.parseDouble(v); return true; }
+        catch (NumberFormatException e) { return false; }
+    }
+
+    private boolean isBoolean(String v) {
+        String s = v.toLowerCase();
+        return s.equals("true") || s.equals("false") || s.equals("yes") || s.equals("no")
+                || s.equals("y") || s.equals("n");
+    }
+
+    private boolean isDate(String v) {
+        for (java.time.format.DateTimeFormatter f : DATE_FORMATS) {
+            try { java.time.LocalDate.parse(v, f); return true; } catch (Exception ignored) { }
+        }
+        // ISO date-time (e.g. 2024-01-15T10:30:00)
+        try { java.time.LocalDateTime.parse(v); return true; } catch (Exception ignored) { }
+        return false;
+    }
+
+    private static final java.time.format.DateTimeFormatter[] DATE_FORMATS = new java.time.format.DateTimeFormatter[] {
+        java.time.format.DateTimeFormatter.ISO_LOCAL_DATE,          // 2024-01-15
+        java.time.format.DateTimeFormatter.ofPattern("MM/dd/yyyy"),
+        java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy"),
+        java.time.format.DateTimeFormatter.ofPattern("yyyy/MM/dd"),
+        java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy"),
+        java.time.format.DateTimeFormatter.ofPattern("M/d/yyyy")
+    };
 }
