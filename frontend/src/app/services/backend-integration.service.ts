@@ -1,0 +1,63 @@
+import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
+import { environment } from '../../environments/environment';
+
+/** One row from GET /api/datasets. */
+export interface DatasetSummary {
+  id: string;
+  table_name: string;
+  original_filename: string;
+  row_count: number;
+  column_count: number;
+  status: string;
+  created_at: string;
+}
+
+/** Response of GET /api/datasets/{id}/rows — columns, their types, and up to 500 rows. */
+export interface DatasetData {
+  columns: string[];
+  types: string[];
+  rows: Record<string, unknown>[];
+}
+
+/**
+ * Reads stored datasets from the backend (DatasetController) so the Dashboard Builder can load a
+ * table's real columns and rows straight from PostgreSQL. `environment.apiUrl` already ends in /api.
+ */
+@Injectable({ providedIn: 'root' })
+export class BackendIntegrationService {
+  private readonly base = environment.apiUrl;
+
+  constructor(private http: HttpClient) {}
+
+  /** Lists every dataset currently stored in the database. */
+  listDatasets(): Promise<DatasetSummary[]> {
+    return firstValueFrom(this.http.get<DatasetSummary[]>(`${this.base}/datasets`));
+  }
+
+  /** Loads one dataset's columns, types, and rows. `limit` raises the backend's default 500-row cap (max 10000). */
+  getDatasetData(uploadId: string, limit = 500): Promise<DatasetData> {
+    return firstValueFrom(
+      this.http.get<DatasetData>(`${this.base}/datasets/${encodeURIComponent(uploadId)}/rows?limit=${limit}`)
+    );
+  }
+
+  /**
+   * Runs a grouped aggregation in PostgreSQL (no 500-row cap) and returns the result rows.
+   * `dimension` null = whole-dataset aggregate (KPI). Measures are {field, agg} pairs.
+   */
+  aggregate(uploadId: string, config: {
+    dimension: string | null;
+    measures: { field: string; agg: string }[];
+    filterValues?: string[];
+    orderDesc?: boolean;
+    limit?: number;
+  }): Promise<{ sql: string; rows: Record<string, unknown>[] }> {
+    return firstValueFrom(
+      this.http.post<{ sql: string; rows: Record<string, unknown>[] }>(
+        `${this.base}/datasets/${encodeURIComponent(uploadId)}/aggregate`, config
+      )
+    );
+  }
+}

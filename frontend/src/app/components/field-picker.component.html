@@ -1,0 +1,97 @@
+<div class="field-picker-container">
+  <div class="card">
+    <div class="card-header bg-primary text-white">
+      <h6 class="mb-0">Select Fields for {{ chartType | uppercase }} Chart</h6>
+    </div>
+    <div class="card-body">
+      <div class="row">
+        <!-- Dimensions -->
+        <div class="col-md-6 mb-3">
+          <h6 class="mb-2">Dimensions</h6>
+          <div class="dimension-list">
+            <div *ngFor="let dim of dimensions" class="form-check">
+              <input
+                type="checkbox"
+                class="form-check-input"
+                [id]="'dim-' + dim.name"
+                [checked]="selectedDimensions.includes(dim.name)"
+                (change)="toggleDimension(dim.name)"
+              />
+              <label class="form-check-label" [for]="'dim-' + dim.name">
+                <i class="bi bi-type"></i>
+                {{ dim.name }}
+              </label>
+              <small class="ms-4 text-muted">{{ dim.type }}</small>
+            </div>
+            <div *ngIf="dimensions.length === 0" class="text-muted">
+              No dimensions available
+            </div>
+          </div>
+        </div>
+
+        <!-- Measures -->
+        <div class="col-md-6 mb-3">
+          <h6 class="mb-2">Measures</h6>
+          <div class="measure-list">
+            <div *ngFor="let meas of measures" class="form-check">
+              <input
+                type="checkbox"
+                class="form-check-input"
+                [id]="'meas-' + meas.name"
+                [checked]="selectedMeasures.includes(meas.name)"
+                (change)="toggleMeasure(meas.name)"
+              />
+              <label class="form-check-label" [for]="'meas-' + meas.name">
+                <i class="bi bi-graph-up"></i>
+                {{ meas.name }}
+              </label>
+              <small class="ms-4 text-muted">{{ meas.type }}</small>
+            </div>
+            <div *ngIf="measures.length === 0" class="text-muted">
+              No measures available
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Selected Summary -->
+      <div class="mt-3 p-2 bg-light rounded">
+        <small>
+          <strong>Selected:</strong>
+          <span *ngIf="selectedDimensions.length === 0 && selectedMeasures.length === 0">
+            None
+          </span>
+          <span *ngIf="selectedDimensions.length > 0">
+            Dimensions: {{ selectedDimensions.join(', ') }}
+          </span>
+          <span *ngIf="selectedDimensions.length > 0 && selectedMeasures.length > 0">
+            |
+          </span>
+          <span *ngIf="selectedMeasures.length > 0">
+            Measures: {{ selectedMeasures.join(', ') }}
+          </span>
+        </small>
+      </div>
+
+      <!-- Validation Message -->
+      <div *ngIf="!isValidSelection()" class="alert alert-warning mt-3 mb-0">
+        <small>
+          <i class="bi bi-exclamation-circle"></i>
+          {{ chartType | uppercase }} chart requires at least 1 dimension and 1 measure
+        </small>
+      </div>
+
+      <!-- Actions -->
+      <div class="mt-3">
+        <button
+          type="button"
+          class="btn btn-sm btn-secondary"
+          (click)="clearSelection()"
+        >
+          <i class="bi bi-trash"></i>
+          Clear Selection
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

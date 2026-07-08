@@ -1,0 +1,45 @@
+.field-picker-container {
+  .dimension-list,
+  .measure-list {
+    .form-check {
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #e0e0e0;
+
+      &:last-child {
+        border-bottom: none;
+      }
+
+      .form-check-input {
+        cursor: pointer;
+
+        &:checked {
+          background-color: #007bff;
+          border-color: #007bff;
+        }
+      }
+
+      .form-check-label {
+        cursor: pointer;
+        margin-left: 0.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+
+        i {
+          color: #007bff;
+          font-size: 1rem;
+        }
+      }
+
+      small {
+        display: block;
+        margin-left: 1.5rem;
+        margin-top: 0.25rem;
+      }
+    }
+  }
+
+  .validation-message {
+    font-size: 0.875rem;
+  }
+}

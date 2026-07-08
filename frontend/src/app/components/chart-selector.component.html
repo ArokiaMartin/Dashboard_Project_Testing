@@ -1,0 +1,23 @@
+<div class="chart-selector-container">
+  <div class="row">
+    <div *ngFor="let option of chartOptions" class="col-md-4 mb-3">
+      <div
+        class="chart-card"
+        (click)="selectChart(option.type)"
+        [class.selected]="isSelected(option.type)"
+      >
+        <div class="chart-icon">
+          <i [class]="'bi ' + option.icon"></i>
+        </div>
+        <h6 class="mt-3">{{ option.label }}</h6>
+        <p class="description">{{ option.description }}</p>
+      </div>
+    </div>
+  </div>
+
+  <div *ngIf="selectedChart" class="alert alert-info mt-3">
+    <i class="bi bi-check-circle"></i>
+    <strong>{{ chartOptions.find(c => c.type === selectedChart)?.label }}</strong>
+    selected
+  </div>
+</div>

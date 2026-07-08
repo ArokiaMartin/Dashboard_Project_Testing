@@ -1,0 +1,49 @@
+.explorer-container {
+  .column-item {
+    padding: 0.75rem;
+    border-bottom: 1px solid #e0e0e0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    transition: all 0.2s ease;
+
+    i {
+      color: #007bff;
+      font-size: 1.1rem;
+    }
+
+    .column-name {
+      flex: 1;
+      font-weight: 500;
+    }
+
+    &:hover {
+      background-color: #f8f9fa;
+      padding-left: 1rem;
+    }
+
+    &.selected {
+      background-color: #e7f1ff;
+    }
+
+    &:last-child {
+      border-bottom: none;
+    }
+  }
+
+  .column-details {
+    border-top: 1px solid #dee2e6;
+    padding: 0.75rem !important;
+    background-color: #f8f9fa;
+    font-size: 0.875rem;
+
+    small {
+      display: block;
+
+      &.italic {
+        font-style: italic;
+      }
+    }
+  }
+}

@@ -1,0 +1,87 @@
+<div class="uploader-container">
+  <div class="card">
+    <div class="card-header bg-primary text-white">
+      <h5 class="mb-0">Upload Data Schema</h5>
+    </div>
+    <div class="card-body">
+      <div
+        class="drop-zone"
+        [class.drag-over]="dragOver"
+        (dragover)="onDragOver($event)"
+        (dragleave)="onDragLeave()"
+        (drop)="onDrop($event)"
+      >
+        <div class="drop-content">
+          <i class="bi bi-cloud-upload"></i>
+          <h6>Drag and drop your JSON file here</h6>
+          <p class="text-muted">or click to select a file</p>
+          <input
+            #fileInput
+            type="file"
+            accept=".json"
+            (change)="onFileSelected($event)"
+            class="file-input"
+          />
+          <button
+            type="button"
+            class="btn btn-outline-primary"
+            (click)="fileInput.click()"
+          >
+            Choose File
+          </button>
+        </div>
+      </div>
+
+      <div *ngIf="selectedFile" class="mt-3">
+        <p class="text-muted">
+          <i class="bi bi-check-circle text-success"></i>
+          Selected: <strong>{{ selectedFile.name }}</strong>
+        </p>
+      </div>
+
+      <div *ngIf="errorMessage" class="alert alert-danger mt-3 mb-0">
+        <i class="bi bi-exclamation-circle"></i>
+        {{ errorMessage }}
+      </div>
+
+      <div *ngIf="successMessage" class="alert alert-success mt-3 mb-0">
+        <i class="bi bi-check-circle"></i>
+        {{ successMessage }}
+      </div>
+
+      <div class="mt-3">
+        <button
+          type="button"
+          class="btn btn-primary"
+          (click)="uploadSchema()"
+          [disabled]="isLoading || !selectedFile"
+        >
+          <span *ngIf="!isLoading">
+            <i class="bi bi-upload"></i>
+            Upload Schema
+          </span>
+          <span *ngIf="isLoading">
+            <span class="spinner-border spinner-border-sm me-2"></span>
+            Uploading...
+          </span>
+        </button>
+      </div>
+
+      <div class="mt-4 p-3 bg-light rounded">
+        <h6>Expected JSON Format</h6>
+        <pre class="mb-0"><code>{{
+          '{\n' +
+          '  "name": "table_name",\n' +
+          '  "columns": [\n' +
+          '    {\n' +
+          '      "name": "column_name",\n' +
+          '      "type": "string|number|date|boolean",\n' +
+          '      "description": "optional description"\n' +
+          '    }\n' +
+          '  ]\n' +
+          '}'
+        }}</code></pre>
+      </div>
+    </div>
+  </div>
+</div>
