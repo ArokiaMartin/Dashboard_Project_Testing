@@ -1,7 +1,7 @@
-package com.example.dashboard_backend.ingestion;
+package com.example.dashboard_backend.service;
 
-import com.example.dashboard_backend.ingestion.dto.FieldAnalysis;
-import com.example.dashboard_backend.ingestion.dto.UploadAnalysisResponse;
+import com.example.dashboard_backend.model.FieldAnalysis;
+import com.example.dashboard_backend.model.UploadAnalysisResponse;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
@@ -40,7 +40,7 @@ public class CsvIngestionService {
 
             String tableName = fileName;
             UUID uploadId = UUID.randomUUID();
-            UUID userId = DatasetController.USER_123;
+            UUID userId = com.example.dashboard_backend.util.AppConstants.USER_123;
 
             try (
                     InputStreamReader reader = new InputStreamReader(
@@ -301,12 +301,10 @@ public class CsvIngestionService {
     }
 
     private String quoteIdentifier(String identifier) {
-
         if (identifier == null || identifier.isBlank()) {
             throw new IllegalArgumentException("CSV column name cannot be empty");
         }
-
-        return "\"" + identifier.replace("\"", "\"\"") + "\"";
+        return com.example.dashboard_backend.util.SqlIdentifier.quote(identifier);
     }
 
     /**

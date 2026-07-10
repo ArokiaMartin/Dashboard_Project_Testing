@@ -1,4 +1,4 @@
-package com.example.dashboard_backend.ingestion.dto;
+package com.example.dashboard_backend.model;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 

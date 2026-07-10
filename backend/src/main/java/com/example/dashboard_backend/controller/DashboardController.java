@@ -1,7 +1,9 @@
-package com.example.dashboard_backend.dashboard;
+package com.example.dashboard_backend.controller;
+import com.example.dashboard_backend.service.DashboardService;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -51,8 +53,8 @@ public class DashboardController {
         return dashboardService.getDashboardsByUserId(userId);
     }
 
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<Map<String, String>> handleBadRequest(IllegalArgumentException ex) {
-        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+    @DeleteMapping("/{dashboardId}")
+    public Map<String, Object> deleteDashboard(@PathVariable String dashboardId) {
+        return dashboardService.deleteDashboard(UUID.fromString(dashboardId));
     }
 }

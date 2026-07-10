@@ -73,6 +73,15 @@ export class DashboardService {
   }
 
   /**
+   * Delete a dashboard record from the backend database (widgets cascade).
+   */
+  deleteDashboardRecord(id: string): Observable<{ success: boolean; dashboard_id?: string }> {
+    return this.http.delete<{ success: boolean; dashboard_id?: string }>(
+      `${this.apiUrl}/dashboards/${encodeURIComponent(id)}`
+    );
+  }
+
+  /**
    * Upload a JSON schema file to initialize dashboard
    */
   uploadSchema(file: File): Observable<SchemaResponse> {

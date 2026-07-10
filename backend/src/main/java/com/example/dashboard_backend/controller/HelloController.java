@@ -1,4 +1,4 @@
-package com.example.dashboard_backend;
+package com.example.dashboard_backend.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;

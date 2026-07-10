@@ -1,8 +1,9 @@
-﻿import { Component, OnInit } from '@angular/core';
+﻿import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
 import { UploadService } from '../../services/upload.service';
+import { LayoutService } from '../../services/layout.service';
 
 interface Dataset {
   id: string;
@@ -19,9 +20,9 @@ interface Dataset {
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="page">
+    <div class="page" [class.fullscreen]="fullscreen">
       <!-- Header -->
-      <div class="head">
+      <div class="head" *ngIf="!fullscreen">
         <div>
           <div class="crumbs">Data <span>/</span> <b>Uploaded Datasets</b></div>
           <h1>Uploaded Data</h1>
@@ -47,7 +48,7 @@ interface Dataset {
       </div>
 
       <!-- Stat cards -->
-      <div class="stats">
+      <div class="stats" *ngIf="!fullscreen">
         <div class="stat"><span class="stat-label">Datasets</span><span class="stat-value">{{ datasets.length }}</span></div>
         <div class="stat"><span class="stat-label">Total Rows</span><span class="stat-value">{{ totalRows() }}</span></div>
         <div class="stat"><span class="stat-label">Total Columns</span><span class="stat-value">{{ totalCols() }}</span></div>
@@ -63,7 +64,7 @@ interface Dataset {
       <!-- Explorer -->
       <div class="explorer" *ngIf="datasets.length > 0">
         <!-- Dataset list -->
-        <aside class="tables-nav">
+        <aside class="tables-nav" *ngIf="!fullscreen">
           <div class="nav-label">DATASETS</div>
           <button class="tbl-item" *ngFor="let d of datasets; let i = index"
                   [class.active]="i === selected" (click)="select(i)">
@@ -84,9 +85,16 @@ interface Dataset {
                 <h3>{{ activeDataset.original_filename }}</h3>
                 <span class="detail-meta">{{ visibleRows.length }} of {{ activeDataset.row_count }} rows · {{ columns.length }} columns</span>
               </div>
-              <div class="detail-search">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                <input [value]="search" (input)="onSearch($any($event.target).value)" placeholder="Search rows..." />
+              <div class="detail-tools">
+                <div class="detail-search">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  <input [value]="search" (input)="onSearch($any($event.target).value)" placeholder="Search rows..." />
+                </div>
+                <button class="expand-btn" (click)="toggleFullscreen()"
+                        [title]="fullscreen ? 'Exit full table view' : 'Expand to full table view'">
+                  <svg *ngIf="!fullscreen" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                  <svg *ngIf="fullscreen" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                </button>
               </div>
             </div>
 
@@ -140,6 +148,7 @@ interface Dataset {
     </div>
   `,
   styles: [`
+    :host { display: block; height: 100%; }
     .page { padding: 28px 32px; max-width: 1400px; margin: 0 auto; }
 
     .head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 22px; }
@@ -180,8 +189,17 @@ interface Dataset {
     .detail-head { display: flex; justify-content: space-between; align-items: center; padding: 18px 20px; border-bottom: 1px solid #eef1f6; }
     .detail-head h3 { margin: 0 0 3px; font-size: 16px; font-weight: 700; color: #0f172a; text-transform: capitalize; }
     .detail-meta { font-size: 12px; color: #94a3b8; }
+    .detail-tools { display: flex; align-items: center; gap: 10px; }
     .detail-search { display: flex; align-items: center; gap: 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 9px; padding: 8px 12px; width: 240px; }
     .detail-search input { border: none; background: none; outline: none; font-size: 13px; flex: 1; color: #334155; }
+    .expand-btn { width: 36px; height: 36px; flex-shrink: 0; border: 1px solid #e2e8f0; background: #f8fafc; border-radius: 9px; color: #64748b; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s ease; }
+    .expand-btn:hover { border-color: #bfdbfe; color: #2563eb; background: #eff6ff; }
+
+    /* full table view */
+    .page.fullscreen { padding: 0; max-width: none; height: 100%; display: flex; flex-direction: column; }
+    .page.fullscreen .explorer { grid-template-columns: 1fr; gap: 0; flex: 1; min-height: 0; }
+    .page.fullscreen .detail { border: none; border-radius: 0; display: flex; flex-direction: column; min-height: 0; }
+    .page.fullscreen .table-scroll { flex: 1; overflow: auto; min-height: 0; }
 
     .type-chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 20px; border-bottom: 1px solid #f4f6fb; }
     .tchip { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 20px; background: #f1f5f9; color: #64748b; }
@@ -235,7 +253,7 @@ interface Dataset {
     }
   `]
 })
-export class DataExplorerComponent implements OnInit {
+export class DataExplorerComponent implements OnInit, OnDestroy {
   datasets: Dataset[] = [];
   selected = 0;
   search = '';
@@ -249,10 +267,28 @@ export class DataExplorerComponent implements OnInit {
   sortDir: 'asc' | 'desc' = 'asc';
   uploading = false;
   uploadError = '';
+  fullscreen = false;
+  private sidebarWasCollapsed = false;
 
-  constructor(private http: HttpClient, private upload: UploadService) {}
+  constructor(private http: HttpClient, private upload: UploadService, private layout: LayoutService) {}
 
   ngOnInit() { this.loadDatasets(); }
+
+  ngOnDestroy() {
+    // Restore the sidebar if the user navigates away while in full table view.
+    if (this.fullscreen) this.layout.setSidebarCollapsed(this.sidebarWasCollapsed);
+  }
+
+  /** Toggles the maximized full-table view, auto-collapsing the shell sidebar for maximum width. */
+  toggleFullscreen() {
+    this.fullscreen = !this.fullscreen;
+    if (this.fullscreen) {
+      this.sidebarWasCollapsed = this.layout.sidebarCollapsed();
+      this.layout.setSidebarCollapsed(true);
+    } else {
+      this.layout.setSidebarCollapsed(this.sidebarWasCollapsed);
+    }
+  }
 
   loadDatasets() {
     this.loading = true;
@@ -323,6 +359,7 @@ export class DataExplorerComponent implements OnInit {
     event.stopPropagation();
     const ds = this.datasets[i];
     if (!ds) return;
+    this.uploadError = '';
     this.http.delete(`${environment.apiUrl}/datasets/${ds.id}`).subscribe({
       next: () => {
         this.datasets.splice(i, 1);
@@ -331,7 +368,8 @@ export class DataExplorerComponent implements OnInit {
         } else {
           this.select(Math.min(this.selected, this.datasets.length - 1));
         }
-      }
+      },
+      error: () => { this.uploadError = `Could not delete "${ds.original_filename}". Please try again.`; }
     });
   }
 

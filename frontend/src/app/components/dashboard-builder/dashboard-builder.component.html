@@ -1,0 +1,217 @@
+
+    <div class="builder" [class.dragging]="dragging">
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <div class="tb-left">
+          <button class="add-widget" (click)="addWidget()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Widget
+          </button>
+          <div class="divider"></div>
+          <button class="tb-icon" title="Reset" (click)="startOver()"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg></button>
+          <div class="divider"></div>
+          <button class="view-data" routerLink="/data">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3z"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+            View Uploaded Data
+          </button>
+        </div>
+        <div class="tb-right">
+          <button class="tb-text" routerLink="/preview">Preview</button>
+          <button class="tb-save" (click)="saveDashboard()" [disabled]="saveBusy || !hasSomethingToSave()">
+            {{ saveBusy ? 'Saving...' : 'Save' }}
+          </button>
+        </div>
+      </div>
+      <div class="save-banner" *ngIf="saveMessage">{{ saveMessage }}</div>
+
+      <div class="body">
+        <!-- LEFT: available columns (multi-select) -->
+        <aside class="rail" [class.mini]="railWidth < 150" [style.width.px]="railWidth">
+          <div class="rail-head">DATASET</div>
+          <div class="ds-picker">
+            <label class="ds-option" *ngFor="let d of datasets" [class.on]="isDatasetSelected(d.id)">
+              <input type="checkbox" [checked]="isDatasetSelected(d.id)" (change)="toggleDataset(d.id)" [disabled]="loadingDatasets" />
+              <span class="ds-option-name" [title]="d.original_filename">{{ d.original_filename }}</span>
+              <span class="ds-option-rows">{{ d.row_count }}</span>
+            </label>
+            <div class="ds-empty" *ngIf="!datasets.length && !loadingDatasets">No datasets yet — upload one from Uploaded Data.</div>
+          </div>
+          <div class="rail-dataset-msg" *ngIf="loadingDatasets">Loading…</div>
+          <div class="rail-dataset-msg" *ngIf="!selectedDatasetIds.length && !loadingDatasets && datasets.length">Showing demo columns — tick a dataset above.</div>
+          <div class="rail-dataset-msg warn" *ngIf="datasetError">{{ datasetError }}</div>
+
+          <div class="rail-head">AVAILABLE COLUMNS</div>
+          <div class="rail-hint">Pick 2–3 columns to see compatible charts.</div>
+          <button class="col-item" *ngFor="let c of compat.columns"
+                  [class.active]="isSelected(c)" (click)="toggleCol(c)">
+            <span class="col-badge" [ngClass]="c.type" [title]="typeLabel(c)">{{ glyph(c) }}</span>
+            <span class="col-name">{{ c.name }}</span>
+            <span class="col-check" *ngIf="isSelected(c)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            </span>
+          </button>
+        </aside>
+        <div class="rail-resizer" (mousedown)="startDrag($event)" (dblclick)="toggleRail()"><span class="grip"></span></div>
+
+        <!-- CENTER -->
+        <section class="center">
+          <div class="canvas-grid" *ngIf="committedWidgets.length">
+            <app-widget-tile *ngFor="let w of committedWidgets; trackBy: trackWidget" [spec]="w" [editing]="w.id === editingWidgetId" (remove)="removeWidget(w.id)" (edit)="editWidget(w.id)"></app-widget-tile>
+          </div>
+          <div class="canvas-divider" *ngIf="committedWidgets.length">
+            <span>{{ committedWidgets.length }} widget{{ committedWidgets.length > 1 ? 's' : '' }} on canvas — build another below</span>
+          </div>
+
+          <!-- Stepper -->
+          <div class="stepper">
+            <div class="stp" [class.active]="!hasColumns()" [class.done]="hasColumns()"><span class="stp-num">1</span> Select Columns</div>
+            <div class="stp-line" [class.done]="hasColumns()"></div>
+            <div class="stp" [class.active]="hasColumns() && !selectedViz" [class.done]="!!selectedViz"><span class="stp-num">2</span> Choose Visualization</div>
+            <div class="stp-line" [class.done]="!!selectedViz"></div>
+            <div class="stp" [class.active]="!!selectedViz"><span class="stp-num">3</span> Preview</div>
+          </div>
+
+          <div class="step-panel">
+            <!-- selected columns -->
+            <div class="sel-head">
+              <h2>Selected columns</h2>
+              <span class="sig" *ngIf="hasColumns()">{{ signatureText() }}</span>
+              <div class="sel-actions">
+                <button class="sel-cancel" *ngIf="editingWidgetId != null" (click)="cancelEdit()">Cancel</button>
+                <button class="sel-apply" (click)="addWidget()" [disabled]="!canSaveCurrentSelection()"
+                        [title]="editingWidgetId != null ? 'Update this widget on the dashboard' : 'Add the current widget to the dashboard'">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                  {{ editingWidgetId != null ? 'Update' : 'Apply' }}
+                </button>
+              </div>
+            </div>
+            <div class="chips">
+              <span class="chip" *ngFor="let c of selectedCols">
+                <span class="col-badge sm" [ngClass]="c.type" [title]="typeLabel(c)">{{ glyph(c) }}</span>
+                {{ c.name }}
+                <button class="chip-x" (click)="toggleCol(c)">✕</button>
+              </span>
+              <span class="chips-empty" *ngIf="!hasColumns()">No columns selected — pick from the left.</span>
+            </div>
+
+            <!-- category filter -->
+            <div class="filter-block" *ngIf="showFilter()">
+              <div class="filter-head">
+                <span class="section-label">FILTER {{ currentDimName() }}</span>
+                <button class="filter-reset" (click)="resetFilter()">Select all</button>
+              </div>
+
+              <div class="filter-controls" *ngIf="currentDimType() === 'date'">
+                <label class="filter-label">Group by</label>
+                <select class="filter-select" (change)="onGranularityChange($event)">
+                  <option value="monthly" [selected]="granularity === 'monthly'">Monthly</option>
+                  <option value="quarterly" [selected]="granularity === 'quarterly'">Quarterly</option>
+                  <option value="half-yearly" [selected]="granularity === 'half-yearly'">Half-Yearly</option>
+                  <option value="yearly" [selected]="granularity === 'yearly'">Yearly</option>
+                </select>
+              </div>
+
+              <div class="filter-controls" *ngIf="currentDimType() === 'string' && measureNames().length">
+                <label class="filter-label">Show</label>
+                <select class="filter-select" (change)="onTopNChange($event)">
+                  <option value="all" [selected]="topNOption === 'all'">All values</option>
+                  <option value="top3" [selected]="topNOption === 'top3'">Top 3 by {{ measureNames()[0] }}</option>
+                  <option value="top5" [selected]="topNOption === 'top5'">Top 5 by {{ measureNames()[0] }}</option>
+                  <option value="bottom3" [selected]="topNOption === 'bottom3'">Bottom 3 by {{ measureNames()[0] }}</option>
+                </select>
+              </div>
+
+              <div class="filter-controls" *ngIf="measureNames().length">
+                <label class="filter-label">Combine using</label>
+                <select class="filter-select" (change)="onAggregationChange($event)">
+                  <option value="sum" [selected]="aggregation === 'sum'">Sum</option>
+                  <option value="avg" [selected]="aggregation === 'avg'">Average</option>
+                  <option value="min" [selected]="aggregation === 'min'">Min</option>
+                  <option value="max" [selected]="aggregation === 'max'">Max</option>
+                </select>
+              </div>
+
+              <div class="filter-controls range-row" *ngIf="measureNames().length">
+                <label class="filter-label">{{ measureNames()[0] }} range</label>
+                <input class="range-input" type="number" placeholder="Min" [value]="rangeMin" (change)="onRangeInput('min', $event)" />
+                <span class="range-sep">–</span>
+                <input class="range-input" type="number" placeholder="Max" [value]="rangeMax" (change)="onRangeInput('max', $event)" />
+                <button class="filter-apply" (click)="applyRange()">Apply</button>
+                <button class="filter-reset" (click)="clearRange()">Clear</button>
+              </div>
+
+              <div class="chip-search-row" *ngIf="allLabelsForFilter().length > 8">
+                <input class="chip-search" type="text" placeholder="Search values…" [value]="chipSearch" (input)="onChipSearch($event)" />
+              </div>
+              <div class="filter-chips">
+                <button class="f-chip" *ngFor="let l of visibleChips()" [class.active]="isLabelActive(l)" (click)="toggleLabel(l)">{{ l }}</button>
+                <button class="f-chip more" *ngIf="showMoreToggle()" (click)="toggleChipsExpanded()">{{ chipsExpanded ? 'Show less' : '+' + hiddenChipCount() + ' more' }}</button>
+              </div>
+            </div>
+
+            <!-- compatible visualizations -->
+            <div *ngIf="hasColumns()">
+              <div class="section-label">COMPATIBLE VISUALIZATIONS</div>
+              <div class="viz-grid">
+                <button class="viz-card" *ngFor="let v of vizCards"
+                        [class.active]="v.key === selectedViz"
+                        [class.disabled]="!allowed(v.key)"
+                        (click)="pickViz(v.key)">
+                  <span class="vc-ic" [innerHTML]="v.iconSafe"></span>
+                  <span class="vc-label">{{ v.label }}</span>
+                  <span class="vc-req" [class.bad]="!allowed(v.key)">{{ v.requirement }}</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- preview -->
+            <div class="preview">
+              <div class="ph" *ngIf="!hasColumns()">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+                <p>Select columns to begin</p>
+              </div>
+              <div class="ph" *ngIf="hasColumns() && !selectedViz">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="1.5"><path d="M9 18l6-6-6-6"/></svg>
+                <p>Now pick a <b>compatible visualization</b> above</p>
+              </div>
+
+              <div class="chart-wrap" *ngIf="selectedViz && isChartViz(selectedViz)"><canvas #previewCanvas></canvas></div>
+
+              <div class="kpi-preview" *ngIf="selectedViz === 'kpi'">
+                <div class="kpi-big">{{ previewKpi | number }}</div>
+                <div class="kpi-cap">Total {{ measureNames()[0] }}</div>
+                <div class="kpi-trend"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg> +12.5% vs last week</div>
+              </div>
+
+              <div class="table-preview" *ngIf="selectedViz === 'table'">
+                <table>
+                  <thead><tr><th *ngFor="let c of previewColumns">{{ c }}</th></tr></thead>
+                  <tbody>
+                    <tr *ngFor="let row of previewRows"><td *ngFor="let cell of row">{{ cell }}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- RIGHT: style options -->
+        <aside class="right">
+          <div class="right-head">Style Options</div>
+          <div *ngIf="!selectedViz || !isChartViz(selectedViz)" class="right-hint">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><circle cx="6.5" cy="12.5" r="2.5"/><path d="M12 2a10 10 0 0 0 0 20 3 3 0 0 0 0-6 2 2 0 0 1 0-4 3 3 0 0 0 0-6z"/></svg>
+            <p>Color options appear for chart visualizations.</p>
+          </div>
+          <div *ngIf="selectedViz && isChartViz(selectedViz)">
+            <div class="section-title">COLOR PALETTE</div>
+            <div class="palette">
+              <span class="sw" *ngFor="let c of palette; let i = index" [style.background]="c" [class.sel]="i === selPalette" (click)="setPalette(i)"></span>
+            </div>
+            <div class="section-title">LEGEND POSITION</div>
+            <div class="legend-seg">
+              <button *ngFor="let p of ['Bottom','Right','Top']" [class.active]="p === legendPos" (click)="setLegend(p)">{{ p }}</button>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>

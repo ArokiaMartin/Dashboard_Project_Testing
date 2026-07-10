@@ -1,4 +1,4 @@
-package com.example.dashboard_backend;
+package com.example.dashboard_backend.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.Operation;
@@ -20,11 +20,11 @@ import java.util.regex.Pattern;
 public class QueryController {
 
     /**
-     * Identifiers (dataset/field/alias names) are validated against this pattern and quoted before
-     * being concatenated into SQL. Values, by contrast, are never concatenated as literals for
-     * execution — they're passed as JDBC bind parameters (see {@link #generateSql}).
+     * Identifiers (dataset/field/alias names) are validated + quoted via
+     * {@link com.example.dashboard_backend.util.SqlIdentifier} before being concatenated into SQL.
+     * Values, by contrast, are never concatenated as literals for execution — they're passed as JDBC
+     * bind parameters (see {@link #generateSql}).
      */
-    private static final Pattern SAFE_IDENTIFIER = Pattern.compile("^[a-zA-Z_][a-zA-Z0-9_]*$");
     private static final Set<String> VALID_AGGREGATIONS = Set.of("SUM", "AVG", "COUNT", "MIN", "MAX");
     private static final Set<String> VALID_DIRECTIONS = Set.of("ASC", "DESC");
 
@@ -214,14 +214,11 @@ public class QueryController {
     }
 
     private static String validateIdentifier(String identifier, String kind) {
-        if (identifier == null || !SAFE_IDENTIFIER.matcher(identifier).matches()) {
-            throw new IllegalArgumentException("Invalid " + kind + " name: " + identifier);
-        }
-        return identifier;
+        return com.example.dashboard_backend.util.SqlIdentifier.validate(identifier, kind);
     }
 
     private static String quoteIdentifier(String identifier) {
-        return "\"" + identifier.replace("\"", "\"\"") + "\"";
+        return com.example.dashboard_backend.util.SqlIdentifier.quote(identifier);
     }
 
     private static String validateAggregation(String aggregation) {
@@ -322,8 +319,4 @@ public class QueryController {
         return response;
     }
 
-    @ExceptionHandler(IllegalArgumentException.class)
-    public org.springframework.http.ResponseEntity<Map<String, String>> handleBadRequest(IllegalArgumentException ex) {
-        return org.springframework.http.ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
-    }
 }

@@ -1,4 +1,4 @@
-package com.example.dashboard_backend.dashboard;
+package com.example.dashboard_backend.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -180,6 +180,22 @@ public class DashboardService {
         Map<String, Object> dashboard = new LinkedHashMap<>(rows.get(0));
         dashboard.put("widgets", getWidgetsForDashboard(dashboardId));
         return dashboard;
+    }
+
+    public Map<String, Object> deleteDashboard(UUID dashboardId) {
+        int deleted = jdbcTemplate.update(
+            "DELETE FROM dashboards WHERE dashboard_id = ?",
+            dashboardId
+        );
+
+        if (deleted == 0) {
+            throw new IllegalArgumentException("Dashboard not found: " + dashboardId);
+        }
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("success", true);
+        response.put("dashboard_id", dashboardId.toString());
+        return response;
     }
 
     public List<Map<String, Object>> getDashboardsByUserId(String userId) {

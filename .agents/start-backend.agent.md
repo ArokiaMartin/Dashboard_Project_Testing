@@ -14,7 +14,7 @@ Steps:
 Use these commands in PowerShell:
 ```powershell
 cd backend
-$env:DB_PASSWORD="your_postgres_password"
+$env:DB_PASSWORD="qwerty"
 .\mvnw.cmd spring-boot:run
 ```
 

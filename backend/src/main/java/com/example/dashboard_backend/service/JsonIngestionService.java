@@ -1,9 +1,9 @@
-package com.example.dashboard_backend.ingestion;
+package com.example.dashboard_backend.service;
 
-import com.example.dashboard_backend.ingestion.dto.FieldAnalysis;
-import com.example.dashboard_backend.ingestion.dto.IngestRequest;
-import com.example.dashboard_backend.ingestion.dto.IngestResponse;
-import com.example.dashboard_backend.ingestion.dto.UploadAnalysisResponse;
+import com.example.dashboard_backend.model.FieldAnalysis;
+import com.example.dashboard_backend.model.IngestRequest;
+import com.example.dashboard_backend.model.IngestResponse;
+import com.example.dashboard_backend.model.UploadAnalysisResponse;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
@@ -790,12 +790,12 @@ public class JsonIngestionService {
 
     private UUID parseUserId(String userId) {
         if (userId == null || userId.isBlank()) {
-            return DatasetController.USER_123;
+            return com.example.dashboard_backend.util.AppConstants.USER_123;
         }
         try {
             return UUID.fromString(userId);
         } catch (IllegalArgumentException e) {
-            return DatasetController.USER_123;
+            return com.example.dashboard_backend.util.AppConstants.USER_123;
         }
     }
 
@@ -842,7 +842,7 @@ public class JsonIngestionService {
     }
 
     private String quoteIdentifier(String identifier) {
-        return "\"" + identifier.replace("\"", "\"\"") + "\"";
+        return com.example.dashboard_backend.util.SqlIdentifier.quote(identifier);
     }
 
     // =============================================================================================

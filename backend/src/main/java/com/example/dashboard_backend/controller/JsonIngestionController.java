@@ -1,8 +1,9 @@
-package com.example.dashboard_backend.ingestion;
+package com.example.dashboard_backend.controller;
+import com.example.dashboard_backend.service.JsonIngestionService;
 
-import com.example.dashboard_backend.ingestion.dto.IngestRequest;
-import com.example.dashboard_backend.ingestion.dto.IngestResponse;
-import com.example.dashboard_backend.ingestion.dto.UploadAnalysisResponse;
+import com.example.dashboard_backend.model.IngestRequest;
+import com.example.dashboard_backend.model.IngestResponse;
+import com.example.dashboard_backend.model.UploadAnalysisResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
@@ -19,7 +20,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-import com.example.dashboard_backend.ingestion.CsvIngestionService;
+import com.example.dashboard_backend.service.CsvIngestionService;
 
 import java.util.Map;
 
@@ -63,11 +64,5 @@ public class JsonIngestionController {
     @PostMapping("/data/ingest")
     public IngestResponse ingestJson(@org.springframework.web.bind.annotation.RequestBody IngestRequest request) {
         return jsonIngestionService.ingest(request);
-    }
-
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<Map<String, String>> handleBadRequest(IllegalArgumentException ex) {
-        return ResponseEntity.badRequest().body(Map.of(
-                "error", ex.getMessage()));
     }
 }

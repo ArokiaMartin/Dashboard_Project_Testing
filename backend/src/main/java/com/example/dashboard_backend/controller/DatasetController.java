@@ -1,5 +1,8 @@
-package com.example.dashboard_backend.ingestion;
+package com.example.dashboard_backend.controller;
 
+import com.example.dashboard_backend.util.SqlIdentifier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
@@ -12,8 +15,8 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/datasets")
 public class DatasetController {
 
-    /** Fixed UUID representing the single test user "user_123". */
-    static final UUID USER_123 = UUID.fromString("00000000-0000-0000-0000-000000000123");
+    private static final Logger log = LoggerFactory.getLogger(DatasetController.class);
+
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -197,7 +200,10 @@ public class DatasetController {
 
         try {
             jdbcTemplate.execute("DROP TABLE IF EXISTS " + quoteIdentifier(tableName));
-        } catch (Exception ignored) { }
+        } catch (Exception ex) {
+            // Metadata is still removed below, but a failed drop leaves an orphaned table — surface it in logs.
+            log.warn("Failed to drop backing table '{}' for upload {}", tableName, uploadId, ex);
+        }
 
         jdbcTemplate.update("DELETE FROM field_metadata WHERE upload_id = ?", uploadId);
         jdbcTemplate.update("DELETE FROM data_uploads WHERE id = ?", uploadId);
@@ -205,13 +211,7 @@ public class DatasetController {
         return ResponseEntity.ok(Map.of("message", "Dataset deleted"));
     }
 
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, String>> handleError(Exception ex) {
-        return ResponseEntity.internalServerError()
-            .body(Map.of("error", ex.getMessage() != null ? ex.getMessage() : "Internal error"));
-    }
-
     private String quoteIdentifier(String name) {
-        return "\"" + name.replace("\"", "\"\"") + "\"";
+        return SqlIdentifier.quote(name);
     }
 }
