@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, ViewChild, ElementRef, AfterViewInit, OnDestroy } from '@angular/core';
+import { Component, Input, Output, EventEmitter, ViewChild, ElementRef, AfterViewInit, OnDestroy, OnChanges, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Chart, registerables } from 'chart.js';
 
@@ -106,7 +106,7 @@ const PALETTE = ['#2563eb', '#60a5fa', '#93c5fd', '#1e40af', '#64748b', '#cbd5e1
     .tile-table td { padding: 7px 10px; font-size: 12px; color: #334155; border-bottom: 1px solid #f4f6fb; white-space: nowrap; }
   `]
 })
-export class WidgetTileComponent implements AfterViewInit, OnDestroy {
+export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() spec!: WidgetSpec;
   @Input() editing = false;
   @Output() remove = new EventEmitter<void>();
@@ -115,10 +115,20 @@ export class WidgetTileComponent implements AfterViewInit, OnDestroy {
   private chart?: Chart;
 
   ngAfterViewInit() { setTimeout(() => this.render(), 0); }
+
+  /** Redraw when the widget is updated in place (same id, new config) — otherwise edits wouldn't show. */
+  ngOnChanges(changes: SimpleChanges) {
+    if (changes['spec'] && !changes['spec'].firstChange) {
+      setTimeout(() => this.render(), 0);
+    }
+  }
+
   ngOnDestroy() { this.chart?.destroy(); }
 
   private render() {
-    if (!this.spec.chartType || !this.canvas) return;
+    this.chart?.destroy();
+    this.chart = undefined;
+    if (!this.spec.chartType || !this.canvas) return;   // KPI/table update via template bindings
     this.chart = new Chart(this.canvas.nativeElement.getContext('2d')!, buildChartConfig(this.spec, true));
   }
 }

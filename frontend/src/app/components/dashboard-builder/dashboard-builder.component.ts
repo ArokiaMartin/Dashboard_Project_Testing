@@ -551,6 +551,12 @@ export class DashboardBuilderComponent implements OnInit {
     this.selPalette = es.selPalette;
     this.legendPos = es.legendPos;
 
+    // Older / DB-restored widgets may have no stored label filter — rebuild it so the axis isn't empty.
+    if (!this.activeLabels.length) {
+      const dimName = this.currentDimName();
+      if (dimName) this.activeLabels = this.axisFor(dimName, true).map(a => a.label);
+    }
+
     if (es.colNames.length && this.selectedCols.length < es.colNames.length) {
       this.saveMessage = `Editing "${widget.title}" — some columns couldn't be restored because their dataset is no longer available. Re-pick the columns, then click Update.`;
     } else {
@@ -845,7 +851,10 @@ export class DashboardBuilderComponent implements OnInit {
   private axisFor(dimName: string, ignoreFilter = false): { label: string; idxs: number[] }[] {
     const buckets = this.bucketsFor(dimName);
     const all = buckets ?? this.currentAllLabels(dimName).map((l, i) => ({ label: l, idxs: [i] }));
-    return ignoreFilter ? all : all.filter(a => this.activeLabels.includes(a.label));
+    if (ignoreFilter) return all;
+    const filtered = all.filter(a => this.activeLabels.includes(a.label));
+    // Never let a stale/empty filter blank the chart — fall back to all categories.
+    return filtered.length ? filtered : all;
   }
 
   private syncLabelFilter() {

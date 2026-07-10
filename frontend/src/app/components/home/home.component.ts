@@ -1,9 +1,11 @@
-import { Component } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink, Router } from '@angular/router';
 import { UploadService } from '../../services/upload.service';
+import { DashboardService, DashboardRecord } from '../../services/dashboard.service';
 
 interface DashCard {
+  id: string;
   name: string;
   edited: string;
   thumb: string;
@@ -77,11 +79,11 @@ interface Report {
 
         <div class="dash-block">
           <div class="block-head">
-            <h3>My Dashboards</h3>
+            <h3>My Recent Dashboards</h3>
             <a routerLink="/dashboards" class="link">View All</a>
           </div>
-          <div class="dash-grid">
-            <div class="dash-card" *ngFor="let d of dashboards" routerLink="/preview">
+          <div class="dash-grid" *ngIf="dashboards.length">
+            <div class="dash-card" *ngFor="let d of dashboards" (click)="openDashboard(d)">
               <div class="thumb" [style.background]="d.thumb">
                 <svg viewBox="0 0 120 70" class="thumb-svg" preserveAspectRatio="none">
                   <rect x="12" y="40" width="10" height="22" rx="2" fill="rgba(255,255,255,.55)"/>
@@ -97,6 +99,12 @@ interface Report {
                 <div class="dash-edited">Last edited {{ d.edited }} <span>›</span></div>
               </div>
             </div>
+          </div>
+          <div class="dash-empty" *ngIf="dashLoaded && !dashboards.length">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+            <p>No dashboards yet</p>
+            <span>Build one in the Dashboard Builder and it will appear here.</span>
+            <button class="btn light" routerLink="/builder">+ Create Dashboard</button>
           </div>
         </div>
       </div>
@@ -199,6 +207,10 @@ interface Report {
     .link:hover { color: #1d4ed8; }
 
     .dash-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .dash-empty { border: 1.5px dashed #e2e8f0; border-radius: 12px; padding: 34px 20px; text-align: center; }
+    .dash-empty svg { margin-bottom: 10px; }
+    .dash-empty p { margin: 0 0 4px; font-size: 14px; font-weight: 700; color: #475569; }
+    .dash-empty span { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 16px; }
     .dash-card { background: white; border: 1px solid #e8ebf2; border-radius: 12px; overflow: hidden; cursor: pointer; transition: all 0.2s ease; }
     .dash-card:hover { box-shadow: 0 10px 26px rgba(15,23,42,0.08); transform: translateY(-2px); border-color: #dbe4f0; }
     .thumb { height: 92px; display: flex; align-items: flex-end; padding: 0; }
@@ -248,19 +260,62 @@ interface Report {
     }
   `]
 })
-export class HomeComponent {
+export class HomeComponent implements OnInit {
   over = false;
   uploading = false;
   error = '';
   pickedName = '';
 
-  constructor(private router: Router, private upload: UploadService) {}
+  /** Recently edited dashboards loaded from the backend (most recent first). */
+  dashboards: DashCard[] = [];
+  dashLoaded = false;
 
-  dashboards: DashCard[] = [
-    { name: 'Accessibility', edited: '2h ago', thumb: 'linear-gradient(135deg,#8ea2c9,#aab8d6)' },
-    { name: 'Sales Performance', edited: '1d ago', thumb: 'linear-gradient(135deg,#1e293b,#334155)' },
-    { name: 'Inventory Audit', edited: '3d ago', thumb: 'linear-gradient(135deg,#1e3a8a,#2563eb)' }
+  private readonly cardGradients = [
+    'linear-gradient(135deg,#1e3a8a,#2563eb)',
+    'linear-gradient(135deg,#1e293b,#334155)',
+    'linear-gradient(135deg,#0f766e,#14b8a6)'
   ];
+
+  constructor(
+    private router: Router,
+    private upload: UploadService,
+    private dashboardService: DashboardService
+  ) {}
+
+  ngOnInit(): void { this.loadRecentDashboards(); }
+
+  private loadRecentDashboards(): void {
+    this.dashboardService.listDashboardRecords('anonymous').subscribe({
+      next: (records) => {
+        this.dashboards = [...records]
+          .sort((a, b) => this.time(b.updated_at || b.created_at) - this.time(a.updated_at || a.created_at))
+          .slice(0, 3)
+          .map((r, i) => ({
+            id: r.dashboard_id,
+            name: r.name,
+            edited: this.formatEdited(r.updated_at || r.created_at),
+            thumb: this.cardGradients[i % this.cardGradients.length]
+          }));
+        this.dashLoaded = true;
+      },
+      error: () => { this.dashLoaded = true; }
+    });
+  }
+
+  openDashboard(d: DashCard): void {
+    this.router.navigate(['/builder'], { queryParams: { dashboardId: d.id } });
+  }
+
+  private time(v: string): number { const t = new Date(v).getTime(); return Number.isFinite(t) ? t : 0; }
+
+  private formatEdited(value: string): string {
+    const t = new Date(value).getTime();
+    if (!Number.isFinite(t)) return 'recently';
+    const ms = Date.now() - t, min = 60000, hr = 60 * min, day = 24 * hr;
+    if (ms < hr) return `${Math.max(1, Math.floor(ms / min))}m ago`;
+    if (ms < day) return `${Math.floor(ms / hr)}h ago`;
+    return `${Math.floor(ms / day)}d ago`;
+  }
 
   reports: Report[] = [
     { name: 'Q3_Revenue_Forecast.json', date: 'Oct 24, 2023', status: 'Processed', records: 12450 },
