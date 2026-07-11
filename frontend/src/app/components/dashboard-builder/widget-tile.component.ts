@@ -377,10 +377,11 @@ export function buildChartConfig(s: WidgetSpec, compact: boolean): any {
   const plugins: any = {
     legend: { display: showLegend, position: s.legendPosition || 'bottom', labels: { usePointStyle: true, boxWidth: 8, font: { size: fontSize } } }
   };
-  // Custom hover tooltip — proof scope: line charts only. Replaces Chart.js's built-in
-  // tooltip with an HTML popup describing the hovered point (dimension, value, measure +
-  // aggregation). Other chart types keep the default tooltip until rollout is confirmed.
-  if (s.chartType === 'line') {
+  // Custom hover tooltip for every category chart (bar/line/radar/pie/doughnut/polar):
+  // an HTML popup describing the hovered point (dimension, value, measure + aggregation, and
+  // — for part-to-whole charts — its share of the total). Scatter keeps Chart.js's default,
+  // since its points are (x, y) pairs rather than a dimension + measure.
+  if (s.chartType && s.chartType !== 'scatter') {
     plugins.tooltip = { enabled: false, external: (ctx: any) => renderMetaTooltip(ctx, s) };
   }
 
@@ -469,20 +470,37 @@ function renderMetaTooltip(context: { chart: Chart; tooltip: any }, s: WidgetSpe
   const points: any[] = tooltip.dataPoints ?? [];
   if (points.length) {
     const dimLabel = tooltip.title?.[0] ?? points[0].label ?? '';
-    const rows = points.map((p) => {
-      const caption = measureCaption(s, p.dataset?.label ?? '');
-      const swatch = p.dataset?.borderColor ?? p.dataset?.backgroundColor ?? s.primary;
+    // Per-item colours resolved by Chart.js (a single slice colour for pie/doughnut/polar,
+    // the series colour for bar/line/radar) — more reliable than reading the dataset directly.
+    const labelColors: any[] = tooltip.labelColors ?? [];
+    // Part-to-whole charts show one series in many colours; add each slice's share of the total.
+    const multiColor = !!s.multiColor;
+    const total = multiColor
+      ? (points[0].dataset?.data ?? []).reduce((sum: number, v: any) => sum + (Number(v) || 0), 0)
+      : 0;
+    const rows = points.map((p, i) => {
+      // Part-to-whole charts don't put the measure name on the Chart dataset, so read it from the spec.
+      const measureName = multiColor ? (s.datasets[0]?.label ?? '') : (p.dataset?.label ?? '');
+      const caption = measureCaption(s, measureName);
+      const swatch = multiColor
+        ? (labelColors[i]?.backgroundColor ?? s.primary)
+        : (p.dataset?.borderColor ?? labelColors[i]?.backgroundColor ?? s.primary);
+      const share = multiColor && total ? ` (${Math.round((Number(p.raw) || 0) / total * 100)}%)` : '';
       return `<div class="wt-row">` +
         `<span class="wt-dot" style="background:${escapeHtml(swatch)}"></span>` +
         `<span class="wt-metric">${escapeHtml(caption)}</span>` +
-        `<span class="wt-value">${escapeHtml(p.formattedValue)}</span>` +
+        `<span class="wt-value">${escapeHtml(p.formattedValue)}${escapeHtml(share)}</span>` +
         `</div>`;
     }).join('');
     el.innerHTML = `<div class="wt-dim">${escapeHtml(dimLabel)}</div>${rows}`;
   }
 
-  // caretX/caretY are relative to the canvas, which fills the container — so this stays inside it.
+  // caretX/caretY are relative to the canvas, which fills the container. The popup is centred on
+  // the caret (translateX -50%), so clamp X to keep edge points' tooltips from spilling outside the tile.
   el.style.opacity = '1';
-  el.style.left = `${tooltip.caretX}px`;
+  const half = el.offsetWidth / 2;
+  const maxX = container.clientWidth - half;
+  const x = Math.max(half, Math.min(tooltip.caretX, maxX));
+  el.style.left = `${x}px`;
   el.style.top = `${tooltip.caretY}px`;
 }
