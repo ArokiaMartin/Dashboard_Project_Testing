@@ -23,6 +23,7 @@
         </div>
       </div>
       <div class="save-banner" *ngIf="saveMessage">{{ saveMessage }}</div>
+      <div class="save-banner" *ngIf="queryError">{{ queryError }}</div>
 
       <div class="body">
         <!-- LEFT: available columns (multi-select) -->
@@ -37,7 +38,7 @@
             <div class="ds-empty" *ngIf="!datasets.length && !loadingDatasets">No datasets yet — upload one from Uploaded Data.</div>
           </div>
           <div class="rail-dataset-msg" *ngIf="loadingDatasets">Loading…</div>
-          <div class="rail-dataset-msg" *ngIf="!selectedDatasetIds.length && !loadingDatasets && datasets.length">Showing demo columns — tick a dataset above.</div>
+          <div class="rail-dataset-msg" *ngIf="!selectedDatasetIds.length && !loadingDatasets && datasets.length">Select at least one dataset to enable builder preview.</div>
           <div class="rail-dataset-msg warn" *ngIf="datasetError">{{ datasetError }}</div>
 
           <div class="rail-head">AVAILABLE COLUMNS</div>

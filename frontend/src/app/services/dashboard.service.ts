@@ -20,6 +20,8 @@ export interface DashboardWidgetRecord {
   layout_json: Record<string, unknown>;
   chart_config_json: Record<string, unknown>;
   database_config_json: Record<string, unknown>;
+  generated_sql?: string;
+  hydrated_data?: Record<string, unknown>[];
 }
 
 export interface DashboardRecord {

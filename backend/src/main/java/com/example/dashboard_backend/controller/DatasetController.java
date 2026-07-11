@@ -59,7 +59,7 @@ public class DatasetController {
             .collect(Collectors.toList());
 
         // ...and the actual DB column names (normalized/lowercased) used to query the table.
-        List<String> dbColumns = fields.stream()
+        List<String> normalizedColumns = fields.stream()
             .map(f -> (String) f.get("normalized_field_name"))
             .collect(Collectors.toList());
 
@@ -68,13 +68,13 @@ public class DatasetController {
             .collect(Collectors.toList());
 
         List<Map<String, Object>> rows;
-        if (dbColumns.isEmpty()) {
+        if (normalizedColumns.isEmpty()) {
             rows = Collections.emptyList();
         } else {
             // Select real columns, but alias each back to its original header so the response
             // keys match the display column names.
-            String colList = java.util.stream.IntStream.range(0, dbColumns.size())
-                .mapToObj(i -> quoteIdentifier(dbColumns.get(i)) + " AS " + quoteIdentifier(columns.get(i)))
+            String colList = java.util.stream.IntStream.range(0, normalizedColumns.size())
+                .mapToObj(i -> quoteIdentifier(normalizedColumns.get(i)) + " AS " + quoteIdentifier(columns.get(i)))
                 .collect(Collectors.joining(", "));
             rows = jdbcTemplate.queryForList(
                 "SELECT " + colList + " FROM " + quoteIdentifier(tableName) +

@@ -21,6 +21,11 @@ export interface DatasetData {
   rows: Record<string, unknown>[];
 }
 
+export interface QueryExecuteResponse {
+  generatedSql: string;
+  data: Record<string, unknown>[];
+}
+
 /**
  * Reads stored datasets from the backend (DatasetController) so the Dashboard Builder can load a
  * table's real columns and rows straight from PostgreSQL. `environment.apiUrl` already ends in /api.
@@ -58,6 +63,15 @@ export class BackendIntegrationService {
       this.http.post<{ sql: string; rows: Record<string, unknown>[] }>(
         `${this.base}/datasets/${encodeURIComponent(uploadId)}/aggregate`, config
       )
+    );
+  }
+
+  /**
+   * Executes a dashboard query config through QueryController.generateSql and returns rows.
+   */
+  executeQuery(config: Record<string, unknown>): Promise<QueryExecuteResponse> {
+    return firstValueFrom(
+      this.http.post<QueryExecuteResponse>(`${this.base}/execute-query`, config)
     );
   }
 }

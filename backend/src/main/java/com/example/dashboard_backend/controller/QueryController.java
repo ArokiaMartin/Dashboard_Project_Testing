@@ -1,6 +1,9 @@
 package com.example.dashboard_backend.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
@@ -16,6 +19,7 @@ import java.util.regex.Pattern;
 
 @RestController
 @CrossOrigin(origins = "*")
+@RequestMapping("/api")
 @Tag(name = "Query API", description = "Endpoints for generating and executing SQL queries from a dashboard configuration")
 public class QueryController {
 
@@ -29,13 +33,16 @@ public class QueryController {
     private static final Set<String> VALID_DIRECTIONS = Set.of("ASC", "DESC");
 
     private final JdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper;
 
     public QueryController(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+        this.objectMapper = new ObjectMapper();
     }
 
     /** Result of building a query: the SQL text (for display) plus the bind parameters (for safe execution). */
     public record GeneratedQuery(String sql, List<Object> params) {}
+    private record DatasetMeta(UUID uploadId, String tableName) {}
 
     public static GeneratedQuery generateSql(JsonNode config) {
 
@@ -66,7 +73,12 @@ public class QueryController {
                 String aggregation = validateAggregation(measure.get("aggregation").asText());
                 String alias = quoteIdentifier(validateIdentifier(measure.get("alias").asText(), "measure alias"));
 
-                String measureExpression = aggregation + "(" + field + ") AS " + alias;
+                String measureTarget = switch (aggregation) {
+                    case "SUM", "AVG", "MIN", "MAX" -> "CAST(NULLIF(" + field + ", '') AS NUMERIC)";
+                    case "COUNT" -> "NULLIF(" + field + ", '')";
+                    default -> throw new IllegalArgumentException("Invalid aggregation: " + aggregation);
+                };
+                String measureExpression = aggregation + "(" + measureTarget + ") AS " + alias;
                 selectParts.add(measureExpression);
             }
         }
@@ -214,7 +226,12 @@ public class QueryController {
     }
 
     private static String validateIdentifier(String identifier, String kind) {
-        return com.example.dashboard_backend.util.SqlIdentifier.validate(identifier, kind);
+        if (identifier == null || identifier.isBlank()) {
+            throw new IllegalArgumentException("Invalid " + kind + " name: " + identifier);
+        }
+        // Identifiers are always emitted as double-quoted names via quoteIdentifier(...),
+        // so spaces/symbols from existing uploaded headers are safe and valid here.
+        return identifier;
     }
 
     private static String quoteIdentifier(String identifier) {
@@ -276,8 +293,8 @@ public class QueryController {
     )
     @PostMapping("/generate-query")
     public Map<String, String> generateQuery(@org.springframework.web.bind.annotation.RequestBody JsonNode config) {
-
-        GeneratedQuery query = generateSql(config);
+        JsonNode normalizedConfig = normalizeConfigForExecution(config);
+        GeneratedQuery query = generateSql(normalizedConfig);
 
         return Map.of(
                 "generatedSql", renderPreview(query)
@@ -308,7 +325,8 @@ public class QueryController {
     )
     @PostMapping("/execute-query")
     public Map<String, Object> executeQuery(@org.springframework.web.bind.annotation.RequestBody JsonNode config) {
-        GeneratedQuery query = generateSql(config);
+        JsonNode normalizedConfig = normalizeConfigForExecution(config);
+        GeneratedQuery query = generateSql(normalizedConfig);
 
         List<Map<String, Object>> result = jdbcTemplate.queryForList(query.sql(), query.params().toArray());
 
@@ -317,6 +335,128 @@ public class QueryController {
         response.put("data", result);
 
         return response;
+    }
+
+    /**
+     * Backend-owned config normalization: resolve dataset token to a real table and map user-facing
+     * field names to normalized DB columns before SQL generation.
+     */
+    private JsonNode normalizeConfigForExecution(JsonNode config) {
+        if (!(config instanceof ObjectNode objectNode)) {
+            throw new IllegalArgumentException("Invalid query config payload");
+        }
+
+        ObjectNode normalized = objectNode.deepCopy();
+        String datasetToken = normalized.path("dataset").asText(null);
+        DatasetMeta datasetMeta = resolveDatasetMeta(datasetToken);
+        normalized.put("dataset", datasetMeta.tableName());
+
+        Map<String, String> fieldMap = datasetMeta.uploadId() == null
+                ? Collections.emptyMap()
+                : loadFieldMap(datasetMeta.uploadId());
+
+        remapDimensions(normalized.withArray("dimensions"), fieldMap);
+        remapMeasures(normalized.withArray("measures"), fieldMap);
+        remapFilters(normalized.with("filters").withArray("rules"), fieldMap);
+        remapHaving(normalized.withArray("having"), fieldMap);
+        remapSorting(normalized.withArray("sorting"), fieldMap);
+
+        return normalized;
+    }
+
+    private DatasetMeta resolveDatasetMeta(String datasetToken) {
+        if (datasetToken == null || datasetToken.isBlank()) {
+            throw new IllegalArgumentException("Dataset is required");
+        }
+
+        try {
+            UUID uploadId = UUID.fromString(datasetToken);
+            List<Map<String, Object>> byId = jdbcTemplate.queryForList(
+                    "SELECT id, table_name FROM data_uploads WHERE id = ?",
+                    uploadId
+            );
+            if (!byId.isEmpty()) {
+                return new DatasetMeta((UUID) byId.get(0).get("id"), String.valueOf(byId.get(0).get("table_name")));
+            }
+        } catch (IllegalArgumentException ignored) {
+            // Dataset token is not a UUID; continue with name-based resolution.
+        }
+
+        List<Map<String, Object>> byName = jdbcTemplate.queryForList(
+                "SELECT id, table_name FROM data_uploads WHERE table_name = ? OR original_filename = ? ORDER BY created_at DESC LIMIT 1",
+                datasetToken,
+                datasetToken
+        );
+        if (!byName.isEmpty()) {
+            return new DatasetMeta((UUID) byName.get(0).get("id"), String.valueOf(byName.get(0).get("table_name")));
+        }
+
+        return new DatasetMeta(null, datasetToken);
+    }
+
+    private Map<String, String> loadFieldMap(UUID uploadId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT field_name, normalized_field_name FROM field_metadata WHERE upload_id = ?",
+                uploadId
+        );
+        Map<String, String> map = new LinkedHashMap<>();
+        for (Map<String, Object> row : rows) {
+            String fieldName = String.valueOf(row.get("field_name"));
+            String normalizedName = String.valueOf(row.get("normalized_field_name"));
+            map.put(fieldName, normalizedName);
+            map.put(normalizedName, normalizedName);
+        }
+        return map;
+    }
+
+    private static String resolveField(Map<String, String> fieldMap, String requestedField) {
+        if (requestedField == null || requestedField.isBlank()) {
+            return requestedField;
+        }
+        return fieldMap.getOrDefault(requestedField, requestedField);
+    }
+
+    private void remapDimensions(ArrayNode dimensions, Map<String, String> fieldMap) {
+        for (int i = 0; i < dimensions.size(); i++) {
+            String requested = dimensions.get(i).asText();
+            dimensions.set(i, objectMapper.getNodeFactory().textNode(resolveField(fieldMap, requested)));
+        }
+    }
+
+    private void remapMeasures(ArrayNode measures, Map<String, String> fieldMap) {
+        for (JsonNode node : measures) {
+            if (node instanceof ObjectNode measure && measure.has("field")) {
+                String requested = measure.get("field").asText();
+                measure.put("field", resolveField(fieldMap, requested));
+            }
+        }
+    }
+
+    private void remapFilters(ArrayNode rules, Map<String, String> fieldMap) {
+        for (JsonNode node : rules) {
+            if (node instanceof ObjectNode rule && rule.has("field")) {
+                String requested = rule.get("field").asText();
+                rule.put("field", resolveField(fieldMap, requested));
+            }
+        }
+    }
+
+    private void remapHaving(ArrayNode having, Map<String, String> fieldMap) {
+        for (JsonNode node : having) {
+            if (node instanceof ObjectNode rule && rule.has("measure")) {
+                String requested = rule.get("measure").asText();
+                rule.put("measure", resolveField(fieldMap, requested));
+            }
+        }
+    }
+
+    private void remapSorting(ArrayNode sorting, Map<String, String> fieldMap) {
+        for (JsonNode node : sorting) {
+            if (node instanceof ObjectNode sort && sort.has("field")) {
+                String requested = sort.get("field").asText();
+                sort.put("field", resolveField(fieldMap, requested));
+            }
+        }
     }
 
 }

@@ -2,6 +2,7 @@ import { Component, ElementRef, ViewChild, HostListener, OnInit } from '@angular
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Chart, registerables } from 'chart.js';
 import { WidgetTileComponent, WidgetSpec, WidgetEditState, Series, buildChartConfig } from './widget-tile.component';
 import { ChartCompatibilityService, Column, VizDef } from '../../services/chart-compatibility.service';
@@ -31,8 +32,11 @@ export class DashboardBuilderComponent implements OnInit {
   selectedDatasetIds: string[] = [];
   loadingDatasets = false;
   datasetError = '';
+  queryError = '';
   /** Real rows for the active dataset (keys = original column names); null in demo mode. Used for scatter/table/fallback. */
   private realRows: Record<string, unknown>[] | null = null;
+  /** Display-name -> normalized DB column mapping for execute-query payload generation. */
+  private displayToDb = new Map<string, string>();
   /** Cache of numeric column name → 'I' (integer) or 'D' (double), inferred from the loaded row values. */
   private numKind = new Map<string, 'I' | 'D'>();
   /** The active dataset's upload id, used for server-side aggregate queries. */
@@ -72,10 +76,11 @@ export class DashboardBuilderComponent implements OnInit {
 
   private _canvas?: HTMLCanvasElement;
   private chart?: Chart;
+  private previewSpec: WidgetSpec | null = null;
 
   @ViewChild('previewCanvas') set canvasRef(ref: ElementRef<HTMLCanvasElement> | undefined) {
     this._canvas = ref?.nativeElement;
-    if (this._canvas) setTimeout(() => this.renderChart(), 0);
+    if (this._canvas) setTimeout(() => this.refreshPreview(), 0);
   }
 
   constructor(
@@ -101,7 +106,8 @@ export class DashboardBuilderComponent implements OnInit {
     try {
       this.datasets = await this.backend.listDatasets();
     } catch {
-      this.datasetError = 'Could not reach the backend (localhost:8081) — showing demo columns.';
+      this.compat.columns = [];
+      this.datasetError = 'Could not reach the backend (localhost:8081). Builder preview/save requires backend data.';
     } finally {
       this.loadingDatasets = false;
       this.tryLoadDashboardFromRoute();
@@ -145,11 +151,15 @@ export class DashboardBuilderComponent implements OnInit {
     this.serverAgg = null;
     this.serverLabels = null;
     this.serverKpi = null;
+    this.queryError = '';
     this.numKind.clear();
+    this.displayToDb.clear();
 
     if (!ids.length) {
       this.realRows = null;
-      this.compat.useDemoColumns();
+      this.compat.columns = [];
+      this.compat.usingRealData = false;
+      this.compat.datasetLabel = null;
       return;
     }
 
@@ -159,9 +169,14 @@ export class DashboardBuilderComponent implements OnInit {
     const labels: string[] = [];
     for (const id of ids) {
       const data = await this.backend.getDatasetData(id, 10000);
-      mergedRows.push(...data.rows);
+      // Builder uses backend query execution for chart data; rows are not processed in frontend.
+      mergedRows.push();
       data.columns.forEach((name, i) => {
-        if (!seen.has(name)) { seen.add(name); mergedCols.push({ name, type: data.types[i] }); }
+        if (!seen.has(name)) {
+          seen.add(name);
+          mergedCols.push({ name, type: data.types[i] });
+          this.displayToDb.set(name, name);
+        }
       });
       labels.push(this.datasets.find(d => d.id === id)?.original_filename ?? id);
     }
@@ -198,23 +213,109 @@ export class DashboardBuilderComponent implements OnInit {
     return null;
   }
 
-  private restoreWidget(index: number, widget: { chart_config_json?: Record<string, unknown>; database_config_json?: Record<string, unknown>; widget_name?: string; }): WidgetSpec | null {
+  private asStringArray(value: unknown): string[] {
+    return Array.isArray(value) ? value.map((v) => String(v)) : [];
+  }
+
+  private measureDefsFromConfig(config: Record<string, unknown>): Array<{ field: string; alias: string }> {
+    const raw = Array.isArray(config['measures']) ? config['measures'] : [];
+    return raw
+      .map((m) => {
+        const rec = (m ?? {}) as Record<string, unknown>;
+        return {
+          field: String(rec['field'] ?? ''),
+          alias: String(rec['alias'] ?? rec['field'] ?? '')
+        };
+      })
+      .filter((m) => m.field && m.alias);
+  }
+
+  private toCellValue(value: unknown): string | number {
+    return typeof value === 'number' || typeof value === 'string' ? value : String(value ?? '');
+  }
+
+  private toDbField(displayName: string): string {
+    return this.displayToDb.get(displayName) ?? displayName;
+  }
+
+  private hydrateWidgetFromRows(spec: WidgetSpec, dbConfig: Record<string, unknown>, rows: Record<string, unknown>[]): WidgetSpec {
+    const dims = this.asStringArray(dbConfig['dimensions']);
+    const measures = this.measureDefsFromConfig(dbConfig);
+    const viz = spec.viz;
+
+    if (viz === 'kpi') {
+      const m = measures[0];
+      const total = m && rows.length ? Number(rows[0][m.alias]) || 0 : 0;
+      return { ...spec, kpiTotal: total, kpiLabel: m?.field ?? spec.kpiLabel };
+    }
+
+    if (viz === 'table') {
+      const columns = this.selectedCols.length
+        ? this.selectedCols.map((c) => c.name)
+        : (dims.length ? dims : Object.keys(rows[0] ?? {}));
+      const tableRows = rows
+        .slice(0, 1000)
+        .map((row) => columns.map((col) => this.toCellValue(row[this.toDbField(col)])));
+      return { ...spec, tableColumns: columns, tableRows };
+    }
+
+    if (viz === 'scatter') {
+      const xField = this.measureCols()[0]?.name ?? this.selectedCols[0]?.name;
+      const yField = this.measureCols()[1]?.name ?? this.selectedCols[1]?.name;
+      const xDbField = xField ? this.toDbField(xField) : '';
+      const yDbField = yField ? this.toDbField(yField) : '';
+      const points = xField && yField
+        ? rows
+            .map((row) => ({ x: Number(row[xDbField]), y: Number(row[yDbField]) }))
+            .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+        : [];
+      return {
+        ...spec,
+        points,
+        datasets: [{ label: `${yField ?? 'Y'} vs ${xField ?? 'X'}`, data: [] }]
+      };
+    }
+
+    const dim = dims[0] ?? '';
+    const labels = dim ? rows.map((row) => String(row[dim] ?? '')) : rows.map((_, i) => `Row ${i + 1}`);
+    const valueMeasures = (spec.multiColor ? measures.slice(0, 1) : measures);
+    const datasets: Series[] = valueMeasures.map((m) => ({
+      label: m.field,
+      data: rows.map((row) => Number(row[m.alias]) || 0)
+    }));
+    return { ...spec, labels, datasets };
+  }
+
+  private async hydrateWidgetData(spec: WidgetSpec, dbConfig: Record<string, unknown>): Promise<WidgetSpec> {
+    if (!this.compat.usingRealData || !dbConfig['dataset']) {
+      this.queryError = 'Select a dataset to load data from backend.';
+      throw new Error('Dataset required for backend query execution');
+    }
+
+    try {
+      const response = await this.backend.executeQuery(dbConfig);
+      this.queryError = '';
+      return this.hydrateWidgetFromRows(spec, dbConfig, response.data ?? []);
+    } catch (err: unknown) {
+      const message = err instanceof HttpErrorResponse
+        ? (typeof err.error?.error === 'string' ? err.error.error : err.message)
+        : (err instanceof Error ? err.message : 'Backend query failed.');
+      this.queryError = `Execute query failed: ${message}`;
+      throw err instanceof Error ? err : new Error(message);
+    }
+  }
+
+  private restoreWidget(index: number, widget: { chart_config_json?: Record<string, unknown>; database_config_json?: Record<string, unknown>; hydrated_data?: Record<string, unknown>[]; widget_name?: string; }): WidgetSpec | null {
     const chart = widget.chart_config_json ?? {};
     const style = (chart['style'] as Record<string, unknown> | undefined) ?? {};
-    const datasets = Array.isArray(chart['datasets']) ? chart['datasets'] as Series[] : [];
-    const labels = Array.isArray(chart['labels']) ? chart['labels'].map((l) => String(l)) : [];
-    const tableColumns = Array.isArray(chart['tableColumns']) ? chart['tableColumns'].map((c) => String(c)) : [];
-    const tableRows = Array.isArray(chart['tableRows']) ? chart['tableRows'].map((row) => Array.isArray(row) ? row.map((v) => (typeof v === 'number' || typeof v === 'string') ? v : String(v ?? '')) : []) : [];
     const viz = String(chart['viz'] ?? 'table');
-
-    return {
+    const base: WidgetSpec = {
       id: index + 1,
       viz,
       title: String(chart['title'] ?? widget.widget_name ?? 'Widget'),
-      chartType: this.parseChartType(chart['chartType']),
-      labels,
-      datasets,
-      points: Array.isArray(chart['points']) ? chart['points'] as { x: number; y: number }[] : undefined,
+      chartType: this.parseChartType(chart['chartType']) ?? (this.isChartViz(viz) ? this.meta(viz).t : null),
+      labels: [],
+      datasets: [],
       primary: String(style['primary'] ?? this.palette[0]),
       fill: Boolean(style['fill'] ?? false),
       multiColor: Boolean(style['multiColor'] ?? false),
@@ -223,12 +324,18 @@ export class DashboardBuilderComponent implements OnInit {
       showLegend: Boolean(style['showLegend'] ?? false),
       legendPosition: style['legendPosition'] === 'right' || style['legendPosition'] === 'top' ? style['legendPosition'] as 'bottom' | 'right' | 'top' : 'bottom',
       stacked: Boolean(style['stacked'] ?? false),
-      kpiTotal: typeof chart['kpiTotal'] === 'number' ? chart['kpiTotal'] as number : undefined,
       kpiLabel: chart['kpiLabel'] ? String(chart['kpiLabel']) : undefined,
-      tableColumns,
-      tableRows,
+      tableColumns: [],
+      tableRows: [],
       databaseConfig: widget.database_config_json
     };
+
+    const dbConfig = (widget.database_config_json ?? {}) as Record<string, unknown>;
+    const hydratedRows = Array.isArray(widget.hydrated_data) ? widget.hydrated_data : [];
+    if (hydratedRows.length && dbConfig) {
+      return this.hydrateWidgetFromRows(base, dbConfig, hydratedRows);
+    }
+    return base;
   }
 
   private async restoreDashboardState(dashboard: DashboardRecord): Promise<void> {
@@ -242,9 +349,9 @@ export class DashboardBuilderComponent implements OnInit {
     }
 
     const firstDbConfig = (widgets[0].database_config_json ?? {}) as Record<string, unknown>;
-    const datasetTable = String(firstDbConfig['dataset'] ?? '');
-    if (datasetTable) {
-      const dataset = this.datasets.find((d) => d.table_name === datasetTable);
+    const datasetToken = String(firstDbConfig['dataset'] ?? '');
+    if (datasetToken) {
+      const dataset = this.datasets.find((d) => d.id === datasetToken || d.table_name === datasetToken);
       if (dataset) {
         try {
           await this.activateDatasetById(dataset.id, false);
@@ -263,48 +370,12 @@ export class DashboardBuilderComponent implements OnInit {
     this.refreshPreview();
   }
 
-  /**
-   * Asks PostgreSQL to group + aggregate the current dimension/measure selection (full dataset, no
-   * 500-row cap) and stores the result. currentAllLabels()/rawValuesFor()/KPI then prefer this over
-   * the in-browser fallback. Guarded by a request id so a slow response can't overwrite a newer one.
-   */
   private async refreshServerAgg(): Promise<void> {
-    const requestId = ++this.aggRequestId;
-    this.serverAgg = null; this.serverLabels = null; this.serverKpi = null;
-    if (!this.compat.usingRealData || !this.uploadId) return;
-
-    const dims = this.dimCols();
-    const meas = this.measureCols();
-    if (meas.length === 0) return;                     // nothing numeric to aggregate
-    if (dims.length > 1) return;                       // only single-dimension grouping is supported server-side
-    const agg = this.aggregation.toUpperCase();
-    const measures = meas.map(m => ({ field: m.name, agg }));
-
-    try {
-      const dimName = dims.length === 1 ? dims[0].name : null;
-      const res = await this.backend.aggregate(this.uploadId, { dimension: dimName, measures });
-      if (requestId !== this.aggRequestId) return;     // a newer request superseded this one
-      if (dimName) {
-        const map = new Map<string, Record<string, number>>();
-        const labels: string[] = [];
-        for (const row of res.rows) {
-          const label = String(row[dimName]);
-          const rec: Record<string, number> = {};
-          for (const m of meas) rec[m.name] = Number(row[m.name]) || 0;
-          map.set(label, rec);
-          labels.push(label);
-        }
-        this.serverAgg = map;
-        this.serverLabels = labels;
-      } else {
-        const rec: Record<string, number> = {};
-        for (const m of meas) rec[m.name] = res.rows.length ? Number(res.rows[0][m.name]) || 0 : 0;
-        this.serverKpi = rec;
-      }
-      this.refreshPreview();
-    } catch {
-      // Backend unavailable — fall back to the in-browser aggregation on realRows.
-    }
+    // Deprecated aggregate endpoint path: keep only local cache reset.
+    this.aggRequestId++;
+    this.serverAgg = null;
+    this.serverLabels = null;
+    this.serverKpi = null;
   }
 
   private meta(viz: string): ChartMeta {
@@ -392,12 +463,44 @@ export class DashboardBuilderComponent implements OnInit {
     this.refreshPreview();
   }
 
-  private refreshPreview() {
+  private async refreshPreview() {
     this.destroyChart();
+    this.queryError = '';
     if (!this.selectedViz || !this.allowed(this.selectedViz)) return;
-    if (this.selectedViz === 'kpi') { this.previewKpi = this.specFor().kpiTotal ?? 0; return; }
-    if (this.selectedViz === 'table') { const s = this.specFor(); this.previewColumns = s.tableColumns ?? []; this.previewRows = s.tableRows ?? []; return; }
-    if (this._canvas) setTimeout(() => this.renderChart(), 0);
+
+    if (!this.compat.usingRealData) {
+      this.previewSpec = null;
+      this.previewKpi = 0;
+      this.previewColumns = [];
+      this.previewRows = [];
+      this.queryError = 'Select at least one dataset. Preview only uses backend query results.';
+      return;
+    }
+
+    let spec = this.specFor();
+    const queryConfig = this.buildQueryBuilderConfig(this.selectedViz);
+    spec.databaseConfig = queryConfig;
+    try {
+      spec = await this.hydrateWidgetData(spec, queryConfig);
+    } catch {
+      this.previewSpec = null;
+      this.previewKpi = 0;
+      this.previewColumns = [];
+      this.previewRows = [];
+      return;
+    }
+
+    this.previewSpec = spec;
+    if (this.selectedViz === 'kpi') {
+      this.previewKpi = spec.kpiTotal ?? 0;
+      return;
+    }
+    if (this.selectedViz === 'table') {
+      this.previewColumns = spec.tableColumns ?? [];
+      this.previewRows = spec.tableRows ?? [];
+      return;
+    }
+    if (this._canvas) setTimeout(() => this.renderChart(spec), 0);
   }
 
   startOver() {
@@ -407,13 +510,20 @@ export class DashboardBuilderComponent implements OnInit {
     this.filterKey = null; this.activeLabels = []; this.granularity = 'monthly'; this.topNOption = 'all';
     this.aggregation = 'sum'; this.rangeMin = null; this.rangeMax = null; this.chipSearch = ''; this.chipsExpanded = false;
     this.serverAgg = null; this.serverLabels = null; this.serverKpi = null;
+    this.previewSpec = null;
     this.destroyChart();
   }
 
-  addWidget() {
+  async addWidget() {
     if (this.hasColumns() && this.selectedViz && this.allowed(this.selectedViz)) {
-      const spec = this.specFor();
-      spec.databaseConfig = this.buildQueryBuilderConfig();
+      let spec = this.specFor();
+      const queryConfig = this.buildQueryBuilderConfig(this.selectedViz);
+      spec.databaseConfig = queryConfig;
+      try {
+        spec = await this.hydrateWidgetData(spec, queryConfig);
+      } catch {
+        return;
+      }
       spec.editState = this.captureEditState();
       const editId = this.editingWidgetId;
       if (editId != null && this.committedWidgets.some(w => w.id === editId)) {
@@ -443,7 +553,7 @@ export class DashboardBuilderComponent implements OnInit {
     const colNames = [...dimensions, ...measures.map(m => m?.field).filter(Boolean)];
     if (!colNames.length) return null;
 
-    const ds = this.datasets.find(d => d.table_name === cfg.dataset);
+    const ds = this.datasets.find(d => d.id === cfg.dataset || d.table_name === cfg.dataset);
     const aggRaw = String(measures[0]?.aggregation ?? 'sum').toLowerCase();
     const aggregation = (['sum', 'avg', 'min', 'max'].includes(aggRaw) ? aggRaw : 'sum') as WidgetEditState['aggregation'];
 
@@ -516,9 +626,9 @@ export class DashboardBuilderComponent implements OnInit {
     // ids that still exist and, if none survive, fall back to matching by the stored table name.
     let datasetIds = es.datasetIds.filter(did => this.datasets.some(d => d.id === did));
     if (!datasetIds.length) {
-      const tableName = (widget.databaseConfig as any)?.dataset;
-      const byName = tableName ? this.datasets.find(d => d.table_name === tableName) : undefined;
-      if (byName) datasetIds = [byName.id];
+      const datasetToken = String((widget.databaseConfig as any)?.dataset ?? '');
+      const byToken = datasetToken ? this.datasets.find(d => d.id === datasetToken || d.table_name === datasetToken) : undefined;
+      if (byToken) datasetIds = [byToken.id];
     }
 
     // Reload the datasets this widget was built from so its columns are available again.
@@ -579,12 +689,17 @@ export class DashboardBuilderComponent implements OnInit {
     return field.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
   }
 
-  private buildQueryBuilderConfig(): Record<string, unknown> {
-    const dimensions = this.dimCols().map((d) => d.name);
-    const measures = this.measureCols().map((m) => ({
-      field: m.name,
+  private buildQueryBuilderConfig(viz: string | null = this.selectedViz): Record<string, unknown> {
+    const selectedCols = this.selectedCols.map((c) => c.name);
+    const dimensions = viz === 'scatter' || viz === 'table'
+      ? selectedCols.map((c) => this.toDbField(c))
+      : this.dimCols().map((d) => this.toDbField(d.name));
+    const measures = viz === 'scatter' || viz === 'table'
+      ? []
+      : this.measureCols().map((m) => ({
+      field: this.toDbField(m.name),
       aggregation: this.aggregation.toUpperCase(),
-      alias: `${this.aggregation}_${this.toAlias(m.name)}`
+      alias: `${this.aggregation}_${this.toAlias(this.toDbField(m.name))}`
     }));
 
     const rules: Array<Record<string, unknown>> = [];
@@ -593,32 +708,32 @@ export class DashboardBuilderComponent implements OnInit {
       const allLabels = this.allLabelsForFilter();
       if (this.activeLabels.length > 0 && this.activeLabels.length < allLabels.length) {
         rules.push({
-          field: dimName,
+          field: this.toDbField(dimName),
           operator: 'IN',
           values: this.activeLabels
         });
       }
     }
 
-    const primaryMeasure = this.measureCols()[0]?.name;
+    const primaryMeasure = viz === 'scatter' || viz === 'table' ? null : this.measureCols()[0]?.name;
     if (primaryMeasure && this.rangeMin != null) {
-      rules.push({ field: primaryMeasure, operator: '>=', value: this.rangeMin });
+      rules.push({ field: this.toDbField(primaryMeasure), operator: '>=', value: this.rangeMin });
     }
     if (primaryMeasure && this.rangeMax != null) {
-      rules.push({ field: primaryMeasure, operator: '<=', value: this.rangeMax });
+      rules.push({ field: this.toDbField(primaryMeasure), operator: '<=', value: this.rangeMax });
     }
 
     let sorting: Array<Record<string, unknown>> = [];
     let pagination: Record<string, unknown> = { top: 100, offset: 0 };
     if (primaryMeasure && this.topNOption !== 'all') {
-      const alias = `${this.aggregation}_${this.toAlias(primaryMeasure)}`;
+      const alias = `${this.aggregation}_${this.toAlias(this.toDbField(primaryMeasure))}`;
       const top = this.topNOption === 'top5' ? 5 : 3;
       const direction = this.topNOption === 'bottom3' ? 'ASC' : 'DESC';
       sorting = [{ field: alias, direction }];
       pagination = { top, offset: 0 };
     }
 
-    const dataset = this.datasets.find((d) => d.id === this.selectedDatasetId)?.table_name ?? '';
+    const dataset = this.selectedDatasetId || this.datasets.find((d) => d.id === this.selectedDatasetId)?.table_name || '';
 
     return {
       dataset,
@@ -631,7 +746,7 @@ export class DashboardBuilderComponent implements OnInit {
     };
   }
 
-  saveDashboard() {
+  async saveDashboard() {
     if (this.saveBusy || !this.hasSomethingToSave()) {
       return;
     }
@@ -644,12 +759,24 @@ export class DashboardBuilderComponent implements OnInit {
 
     const widgetsToSave = this.committedWidgets.length
       ? this.committedWidgets
-      : (() => {
-          const spec = this.specFor();
+      : await (async () => {
+          let spec = this.specFor();
           spec.id = ++this.widgetSeq;
-          spec.databaseConfig = this.buildQueryBuilderConfig();
+          const queryConfig = this.buildQueryBuilderConfig(this.selectedViz);
+          spec.databaseConfig = queryConfig;
+          try {
+            spec = await this.hydrateWidgetData(spec, queryConfig);
+          } catch {
+            this.saveBusy = false;
+            this.saveMessage = 'Cannot save: backend query failed for current widget.';
+            return [] as WidgetSpec[];
+          }
           return [spec];
         })();
+
+    if (!widgetsToSave.length) {
+      return;
+    }
 
     const payload: SaveDashboardRequest = {
       user_id: 'anonymous',
@@ -664,13 +791,7 @@ export class DashboardBuilderComponent implements OnInit {
           viz: widget.viz,
           chartType: widget.chartType,
           title: widget.title,
-          labels: widget.labels,
-          datasets: widget.datasets,
-          points: widget.points,
-          kpiTotal: widget.kpiTotal,
           kpiLabel: widget.kpiLabel,
-          tableColumns: widget.tableColumns,
-          tableRows: widget.tableRows,
           style: {
             primary: widget.primary,
             fill: widget.fill,
@@ -703,8 +824,8 @@ export class DashboardBuilderComponent implements OnInit {
 
   removeWidget(id: number) { this.committedWidgets = this.committedWidgets.filter(w => w.id !== id); }
 
-  setPalette(i: number) { this.selPalette = i; if (this.isChartViz(this.selectedViz)) setTimeout(() => this.renderChart(), 0); }
-  setLegend(p: string) { this.legendPos = p; if (this.isChartViz(this.selectedViz)) setTimeout(() => this.renderChart(), 0); }
+  setPalette(i: number) { this.selPalette = i; this.refreshPreview(); }
+  setLegend(p: string) { this.legendPos = p; this.refreshPreview(); }
 
   // ---- resizable rail ----
   startDrag(e: MouseEvent) { this.dragging = true; this.dragStartX = e.clientX; this.dragStartW = this.railWidth; e.preventDefault(); }
@@ -757,7 +878,7 @@ export class DashboardBuilderComponent implements OnInit {
       }
       return out;
     }
-    return this.compat.labelsFor(dimName);
+    return [];
   }
 
   /** All numeric values of a measure across the whole real dataset (used for KPI / no-dimension aggregation). */
@@ -899,19 +1020,6 @@ export class DashboardBuilderComponent implements OnInit {
 
   onTopNChange(e: Event) {
     this.topNOption = (e.target as HTMLSelectElement).value as typeof this.topNOption;
-    const dimName = this.currentDimName();
-    const meas = this.measureCols();
-    if (!dimName || !meas.length || this.topNOption === 'all') {
-      this.activeLabels = this.allLabelsForFilter();
-      this.refreshPreview();
-      return;
-    }
-    const axis = this.axisFor(dimName, true);
-    const allLabels = this.currentAllLabels(dimName);
-    const scored = axis.map(a => ({ label: a.label, v: this.categoryValue(meas[0].name, a.idxs, allLabels) }));
-    scored.sort((a, b) => this.topNOption === 'bottom3' ? a.v - b.v : b.v - a.v);
-    const n = this.topNOption === 'top5' ? 5 : 3;
-    this.activeLabels = scored.slice(0, n).map(s => s.label);
     this.refreshPreview();
   }
 
@@ -928,19 +1036,7 @@ export class DashboardBuilderComponent implements OnInit {
   }
 
   applyRange() {
-    const dimName = this.currentDimName();
-    const meas = this.measureCols();
-    if (!dimName || !meas.length) return;
-    const axis = this.axisFor(dimName, true);
-    const allLabels = this.currentAllLabels(dimName);
-    const kept = axis.filter(a => {
-      const v = this.categoryValue(meas[0].name, a.idxs, allLabels);
-      if (this.rangeMin != null && v < this.rangeMin) return false;
-      if (this.rangeMax != null && v > this.rangeMax) return false;
-      return true;
-    }).map(a => a.label);
     this.topNOption = 'all';
-    this.activeLabels = kept.length ? kept : axis.map(a => a.label);
     this.refreshPreview();
   }
 
@@ -974,67 +1070,24 @@ export class DashboardBuilderComponent implements OnInit {
 
     if (viz === 'kpi') {
       const m = meas[0];
-      const total = this.serverKpi && this.serverKpi[m.name] !== undefined
-        ? this.serverKpi[m.name]
-        : this.realRows
-          ? this.aggregateValues(this.realMeasureValues(m.name))
-          : this.compat.valuesFor(m.name, 6).reduce((a, b) => a + b, 0);
-      return { ...base, title: 'Total ' + m.name, kpiTotal: total, kpiLabel: m.name };
+      return { ...base, title: 'Total ' + m.name, kpiTotal: 0, kpiLabel: m.name };
     }
 
     if (viz === 'table') {
-      // Real dataset: show the actual rows straight from the database.
-      if (this.realRows) {
-        const columns = this.selectedCols.map(c => c.name);
-        const rows = this.realRows.slice(0, 1000).map(r => this.selectedCols.map(c => {
-          const v = r[c.name];
-          return (typeof v === 'number' || typeof v === 'string') ? v : String(v ?? '');
-        }));
-        return { ...base, title: 'Data table', tableColumns: columns, tableRows: rows };
-      }
-      const dim0 = dims[0];
-      const axis = dim0 ? this.axisFor(dim0.name) : null;
-      const rowLabels = axis ? axis.map(a => a.label) : this.compat.valuesFor(meas[0].name, 6).map((_, i) => `Row ${i + 1}`);
-      const allLabels0 = dim0 ? this.currentAllLabels(dim0.name) : [];
-      const columns = this.selectedCols.map(c => c.name);
-      const rows = rowLabels.map((label, ri) => {
-        const idxs = axis ? axis[ri].idxs : [ri];
-        return this.selectedCols.map(c => {
-          if (c.type === 'number') return this.categoryValue(c.name, idxs, allLabels0);
-          return c === dim0 ? label : this.compat.labelsFor(c.name)[idxs[0] % this.compat.labelsFor(c.name).length];
-        });
-      });
-      return { ...base, title: 'Data table', tableColumns: columns, tableRows: rows };
+      return { ...base, title: 'Data table', tableColumns: this.selectedCols.map(c => c.name), tableRows: [] };
     }
 
     const mt = this.meta(viz);
 
     if (viz === 'scatter') {
-      let points: { x: number; y: number }[];
-      if (this.realRows) {
-        points = this.realRows
-          .map(r => ({ x: Number(r[meas[0].name]), y: Number(r[meas[1].name]) }))
-          .filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));
-      } else {
-        const n = 12;
-        const xs = this.compat.valuesFor(meas[0].name, n);
-        const ys = this.compat.valuesFor(meas[1].name, n);
-        points = xs.map((x, i) => ({ x, y: ys[i] }));
-      }
-      return { ...base, chartType: 'scatter', title: `${meas[1].name} vs ${meas[0].name}`, points, datasets: [{ label: `${meas[1].name} vs ${meas[0].name}`, data: [] }] };
+      return { ...base, chartType: 'scatter', title: `${meas[1].name} vs ${meas[0].name}`, points: [], datasets: [{ label: `${meas[1].name} vs ${meas[0].name}`, data: [] }] };
     }
 
     const dim = dims[0];
-    const axis = this.axisFor(dim.name);
-    const labels = axis.map(a => a.label);
-    const allLabels = this.currentAllLabels(dim.name);
-    const datasets: Series[] = (mt.multi ? [meas[0]] : meas).map(m => ({
-      label: m.name,
-      data: axis.map(a => this.categoryValue(m.name, a.idxs, allLabels))
-    }));
+    const datasets: Series[] = (mt.multi ? [meas[0]] : meas).map(m => ({ label: m.name, data: [] }));
     return {
       ...base, chartType: mt.t, title: `${meas.map(m => m.name).join(', ')} by ${dim.name}`,
-      labels, datasets, fill: mt.fill, multiColor: mt.multi, radial: mt.radial, indexAxis: mt.axis,
+      labels: [], datasets, fill: mt.fill, multiColor: mt.multi, radial: mt.radial, indexAxis: mt.axis,
       stacked: viz === 'stacked',
       showLegend: mt.multi || datasets.length > 1
     };
@@ -1042,10 +1095,11 @@ export class DashboardBuilderComponent implements OnInit {
 
   private destroyChart() { if (this.chart) { this.chart.destroy(); this.chart = undefined; } }
 
-  private renderChart() {
+  private renderChart(specOverride?: WidgetSpec) {
     if (!this._canvas || !this.isChartViz(this.selectedViz) || !this.allowed(this.selectedViz!)) return;
     this.destroyChart();
-    const cfg = buildChartConfig(this.specFor(), false);
+    const spec = specOverride ?? this.previewSpec ?? this.specFor();
+    const cfg = buildChartConfig(spec, false);
     this.chart = new Chart(this._canvas.getContext('2d')!, cfg);
   }
 }
