@@ -25,6 +25,8 @@ export class DashboardBuilderComponent implements OnInit {
   selectedCols: Column[] = [];
   selectedViz: string | null = null;
   vizCards: VizCard[];
+  /** Optional drill-down path (display names of extra dimension columns), in drill order. */
+  drillPathNames: string[] = [];
 
   // ---- datasets loaded live from the database ----
   datasets: DatasetSummary[] = [];
@@ -451,6 +453,7 @@ export class DashboardBuilderComponent implements OnInit {
     }
     // if the current chart is no longer valid for the new selection, clear it
     if (this.selectedViz && !this.allowed(this.selectedViz)) this.selectedViz = null;
+    this.pruneDrillPath();
     this.syncLabelFilter();
     this.refreshServerAgg();
     this.refreshPreview();
@@ -506,6 +509,7 @@ export class DashboardBuilderComponent implements OnInit {
   startOver() {
     this.editingWidgetId = null;
     this.selectedCols = []; this.selectedViz = null;
+    this.drillPathNames = [];
     this.previewKpi = 0; this.previewColumns = []; this.previewRows = [];
     this.filterKey = null; this.activeLabels = []; this.granularity = 'monthly'; this.topNOption = 'all';
     this.aggregation = 'sum'; this.rangeMin = null; this.rangeMax = null; this.chipSearch = ''; this.chipsExpanded = false;
@@ -586,7 +590,8 @@ export class DashboardBuilderComponent implements OnInit {
       rangeMin,
       rangeMax,
       selPalette: 0,
-      legendPos: this.legendPos
+      legendPos: this.legendPos,
+      drillPath: Array.isArray(cfg.drillPath) ? cfg.drillPath.map(String) : []
     };
   }
 
@@ -604,7 +609,8 @@ export class DashboardBuilderComponent implements OnInit {
       rangeMin: this.rangeMin,
       rangeMax: this.rangeMax,
       selPalette: this.selPalette,
-      legendPos: this.legendPos
+      legendPos: this.legendPos,
+      drillPath: [...this.validDrillNames()]
     };
   }
 
@@ -650,6 +656,12 @@ export class DashboardBuilderComponent implements OnInit {
     this.selectedCols = es.colNames
       .map(name => this.compat.columns.find(c => c.name === name))
       .filter((c): c is Column => !!c);
+    // Restore the drill path. Accept either display names (from a snapshot) or db field names
+    // (from a config-reconstructed state), mapping each back to a real column display name.
+    const validDrill = new Set(this.compat.columns.map(c => c.name));
+    this.drillPathNames = (es.drillPath ?? [])
+      .map(n => validDrill.has(n) ? n : (this.compat.columns.find(c => this.toDbField(c.name) === n)?.name ?? n))
+      .filter(n => validDrill.has(n));
     this.selectedViz = es.viz;
     this.filterKey = es.filterKey;
     this.activeLabels = [...es.activeLabels];
@@ -735,6 +747,12 @@ export class DashboardBuilderComponent implements OnInit {
 
     const dataset = this.selectedDatasetId || this.datasets.find((d) => d.id === this.selectedDatasetId)?.table_name || '';
 
+    // Drill path: extra dimension columns to descend into (db field names, in order). Charts only.
+    const plottedDim = this.currentDimName();
+    const drillPath = viz === 'scatter' || viz === 'table' || !this.isChartViz(viz) || !plottedDim
+      ? []
+      : this.validDrillNames().map((n) => this.toDbField(n));
+
     return {
       dataset,
       dimensions,
@@ -742,7 +760,8 @@ export class DashboardBuilderComponent implements OnInit {
       filters: { condition: 'AND', rules },
       having: [],
       sorting,
-      pagination
+      pagination,
+      drillPath
     };
   }
 
@@ -839,6 +858,46 @@ export class DashboardBuilderComponent implements OnInit {
   private dimCols(): Column[] { return this.selectedCols.filter(c => c.type !== 'number'); }
   private measureCols(): Column[] { return this.selectedCols.filter(c => c.type === 'number'); }
   measureNames(): string[] { return this.measureCols().map(c => c.name); }
+
+  // ---- drill-down path picker (extra dimension columns to drill into, below the plotted one) ----
+
+  /** Dimension columns in the dataset that could be drilled into: any non-numeric column that isn't the plotted one. */
+  drillCandidates(): Column[] {
+    const plotted = this.currentDimName();
+    return this.compat.columns.filter(c => c.type !== 'number' && c.name !== plotted);
+  }
+
+  /** Show the picker only for grouped charts that have a single plotted dimension and something to drill into. */
+  showDrillPicker(): boolean {
+    return this.hasColumns() && this.isChartViz(this.selectedViz) && this.selectedViz !== 'scatter'
+      && this.currentDimName() !== null && this.drillCandidates().length > 0;
+  }
+
+  isDrillSelected(c: Column): boolean { return this.drillPathNames.includes(c.name); }
+  /** 1-based position of a column in the drill order, or null if not selected. */
+  drillOrder(c: Column): number | null {
+    const i = this.drillPathNames.indexOf(c.name);
+    return i < 0 ? null : i + 1;
+  }
+
+  toggleDrill(c: Column) {
+    this.drillPathNames = this.isDrillSelected(c)
+      ? this.drillPathNames.filter(n => n !== c.name)
+      : [...this.drillPathNames, c.name];
+    this.refreshPreview();
+  }
+
+  /** Drop drill entries that are no longer valid candidates (removed column, or now the plotted dimension). */
+  private pruneDrillPath() {
+    const valid = new Set(this.drillCandidates().map(c => c.name));
+    this.drillPathNames = this.drillPathNames.filter(n => valid.has(n));
+  }
+
+  /** Drill names still valid for the current selection, in order — what actually gets saved. */
+  private validDrillNames(): string[] {
+    const valid = new Set(this.drillCandidates().map(c => c.name));
+    return this.drillPathNames.filter(n => valid.has(n));
+  }
 
   // ---- category / date filter for the single selected dimension ----
   activeLabels: string[] = [];
@@ -1065,7 +1124,10 @@ export class DashboardBuilderComponent implements OnInit {
     const base: WidgetSpec = {
       id: 0, viz, title: '', chartType: null, labels: [], datasets: [],
       primary, fill: false, multiColor: false, radial: false, indexAxis: 'x', showLegend: false,
-      legendPosition: this.legendPos.toLowerCase() as WidgetSpec['legendPosition']
+      legendPosition: this.legendPos.toLowerCase() as WidgetSpec['legendPosition'],
+      // Snapshot current inputs so the live preview's hover tooltip can show the aggregation
+      // (e.g. SUM(revenue)); committed widgets get this re-captured on Apply.
+      editState: this.captureEditState()
     };
 
     if (viz === 'kpi') {

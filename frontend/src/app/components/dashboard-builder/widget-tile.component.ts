@@ -1,10 +1,14 @@
 import { Component, Input, Output, EventEmitter, ViewChild, ElementRef, AfterViewInit, OnDestroy, OnChanges, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Chart, registerables } from 'chart.js';
+import { BackendIntegrationService } from '../../services/backend-integration.service';
 
 Chart.register(...registerables);
 
 export interface Series { label: string; data: number[]; }
+
+/** One hop in a drill-down path: the ancestor dimension field and the value the user clicked. */
+export interface DrillStep { field: string; value: string; }
 
 /** Snapshot of the builder inputs that produced a widget, so it can be reloaded for editing. */
 export interface WidgetEditState {
@@ -20,6 +24,8 @@ export interface WidgetEditState {
   rangeMax: number | null;
   selPalette: number;
   legendPos: string;
+  /** Ordered dimension columns to drill into, below the plotted dimension. Optional (older widgets have none). */
+  drillPath?: string[];
 }
 
 export interface WidgetSpec {
@@ -65,6 +71,22 @@ const PALETTE = ['#2563eb', '#60a5fa', '#93c5fd', '#1e40af', '#64748b', '#cbd5e1
           </button>
         </div>
       </div>
+
+      <!-- Drill-down breadcrumb: only shown once a widget has a multi-dimension hierarchy to drill. -->
+      <div class="tile-drill" *ngIf="isDrillable()">
+        <button class="drill-crumb root" (click)="resetDrill()" [disabled]="drillStack.length === 0" title="Back to top level">
+          {{ baseDimLabel() }}
+        </button>
+        <ng-container *ngFor="let step of drillStack; let i = index">
+          <span class="drill-sep">›</span>
+          <button class="drill-crumb" (click)="drillUpTo(i)" [title]="'Back to ' + step.value">{{ step.value }}</button>
+        </ng-container>
+        <span class="drill-current" *ngIf="canDrillDown()">· click to break down by <b>{{ currentDimLabel() }}</b></span>
+        <span class="drill-current leaf" *ngIf="!canDrillDown() && drillStack.length">· deepest level</span>
+        <span class="drill-status" *ngIf="drillLoading">loading…</span>
+        <span class="drill-status err" *ngIf="drillError" [title]="drillError">failed</span>
+      </div>
+
       <div class="tile-body">
         <div class="tile-chart" *ngIf="spec.chartType"><canvas #cv></canvas></div>
 
@@ -94,6 +116,17 @@ const PALETTE = ['#2563eb', '#60a5fa', '#93c5fd', '#1e40af', '#64748b', '#cbd5e1
     .tile-edit, .tile-remove { width: 26px; height: 26px; border: none; background: none; color: #cbd5e1; border-radius: 7px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
     .tile-edit:hover { background: #eff6ff; color: #2563eb; }
     .tile-remove:hover { background: #fef2f2; color: #ef4444; }
+    .tile-drill { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: -4px 0 8px; font-size: 11px; color: #94a3b8; }
+    .drill-crumb { border: none; background: #f1f5f9; color: #2563eb; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 6px; cursor: pointer; }
+    .drill-crumb:hover:not(:disabled) { background: #e0edff; }
+    .drill-crumb:disabled { color: #64748b; cursor: default; background: #f1f5f9; }
+    .drill-crumb.root { font-weight: 700; }
+    .drill-sep { color: #cbd5e1; }
+    .drill-current { color: #94a3b8; }
+    .drill-current b { color: #475569; font-weight: 700; }
+    .drill-current.leaf { color: #cbd5e1; }
+    .drill-status { margin-left: auto; font-weight: 600; color: #94a3b8; }
+    .drill-status.err { color: #ef4444; }
     .tile-body { flex: 1; min-height: 0; position: relative; }
     .tile-chart { position: absolute; inset: 0; }
     .tile-kpi { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
@@ -114,22 +147,188 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
   @ViewChild('cv') canvas?: ElementRef<HTMLCanvasElement>;
   private chart?: Chart;
 
-  ngAfterViewInit() { setTimeout(() => this.render(), 0); }
+  // ---- drill-down state (additive; only engages when a widget has >1 dimension) ----
+  /** Ancestor hops the user drilled through; drives the breadcrumb. Empty = top level. */
+  drillStack: DrillStep[] = [];
+  /** The stack whose data is actually rendered right now (used to revert the breadcrumb on a failed load). */
+  private renderedStack: DrillStep[] = [];
+  /** Labels/series for the current drill level; null = render the base spec the builder hydrated. */
+  private drillLabels: string[] | null = null;
+  private drillDatasets: Series[] | null = null;
+  drillLoading = false;
+  drillError = '';
+
+  constructor(private backend: BackendIntegrationService) {}
+
+  ngAfterViewInit() { setTimeout(() => this.initRender(), 0); }
 
   /** Redraw when the widget is updated in place (same id, new config) — otherwise edits wouldn't show. */
   ngOnChanges(changes: SimpleChanges) {
     if (changes['spec'] && !changes['spec'].firstChange) {
-      setTimeout(() => this.render(), 0);
+      this.resetDrillState();          // a replaced/edited widget starts fresh at the top level
+      setTimeout(() => this.initRender(), 0);
     }
   }
 
   ngOnDestroy() { this.chart?.destroy(); }
 
+  /** First paint: show the builder-hydrated data immediately, then (for multi-dimension widgets)
+   *  refine the base to a clean single-dimension grouping so the hierarchy can be drilled. */
+  private initRender() {
+    this.render();
+    if (this.isDrillable() && !this.drillLabels) {
+      this.loadLevel([]);
+    }
+  }
+
+  // ---- drill hierarchy helpers ------------------------------------------------
+
+  /**
+   * Ordered dimension fields = the drill hierarchy. Charts here plot exactly one dimension, so the
+   * hierarchy is that plotted dimension (level 0) followed by the widget's optional `drillPath`
+   * (finer dimensions to descend into). Both come straight from the saved query config.
+   */
+  private hierarchy(): string[] {
+    const db = this.spec.databaseConfig as any;
+    const base = Array.isArray(db?.dimensions) ? db.dimensions.map((d: unknown) => String(d)) : [];
+    const path = Array.isArray(db?.drillPath) ? db.drillPath.map((d: unknown) => String(d)) : [];
+    return [...base.slice(0, 1), ...path];
+  }
+
+  /** Measures ({field, alias}) from the saved query config, used to read re-query result rows. */
+  private measureDefs(): { field: string; alias: string }[] {
+    const raw = (this.spec.databaseConfig as any)?.measures;
+    return Array.isArray(raw)
+      ? raw
+          .map((m: any) => ({ field: String(m?.field ?? ''), alias: String(m?.alias ?? m?.field ?? '') }))
+          .filter((m: { field: string; alias: string }) => m.field && m.alias)
+      : [];
+  }
+
+  /** A widget can drill only if it's a Chart.js chart with more than one dimension and at least one measure. */
+  isDrillable(): boolean {
+    return !!this.spec.chartType && this.hierarchy().length > 1 && this.measureDefs().length > 0;
+  }
+
+  /** True while there's still a finer dimension to drill into below the current level. */
+  canDrillDown(): boolean {
+    return this.isDrillable() && this.drillStack.length < this.hierarchy().length - 1;
+  }
+
+  private prettyField(field: string): string {
+    return field ? field.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : field;
+  }
+  baseDimLabel(): string { return this.prettyField(this.hierarchy()[0] ?? 'All'); }
+  /** The next-finer dimension a click would break the current level down into. */
+  currentDimLabel(): string { return this.prettyField(this.hierarchy()[this.drillStack.length + 1] ?? ''); }
+
+  // ---- drill actions ----------------------------------------------------------
+
+  /** Click on a bar/point/slice → drill into that category using the next dimension in the hierarchy. */
+  private onPointClick(chart: Chart, event: any): void {
+    if (!this.canDrillDown() || this.drillLoading) return;
+    const els = chart.getElementsAtEventForMode(event, 'nearest', { intersect: true }, true);
+    if (!els.length) return;
+    const label = chart.data.labels?.[els[0].index];
+    if (label === undefined || label === null) return;
+    const field = this.hierarchy()[this.drillStack.length];
+    this.loadLevel([...this.drillStack, { field, value: String(label) }]);
+  }
+
+  /** Breadcrumb: jump back up to a given depth (0 = first crumb after the root). */
+  drillUpTo(index: number): void {
+    if (index >= this.drillStack.length) return;
+    const target = this.drillStack.slice(0, index);
+    target.length ? this.loadLevel(target) : this.resetDrill();
+  }
+
+  /** Breadcrumb root: return to the widget's original top-level view. */
+  resetDrill(): void {
+    if (!this.drillStack.length && !this.renderedStack.length) return;
+    this.loadLevel([]);
+  }
+
+  private resetDrillState(): void {
+    this.drillStack = [];
+    this.renderedStack = [];
+    this.drillLabels = null;
+    this.drillDatasets = null;
+    this.drillLoading = false;
+    this.drillError = '';
+  }
+
+  /**
+   * Re-query one drill level through the SAME execute-query path the builder uses (no new endpoint or
+   * query shape), then re-render the same chart. `target` is the ancestor stack for the level to show.
+   */
+  private loadLevel(target: DrillStep[]): void {
+    const dim = this.hierarchy()[target.length];
+    if (!dim) return;
+
+    this.drillStack = target;          // optimistic breadcrumb; reverted on failure
+    this.drillLoading = true;
+    this.drillError = '';
+
+    this.backend.executeQuery(this.buildLevelConfig(dim, target))
+      .then((res) => {
+        const rows = res.data ?? [];
+        this.drillLabels = rows.map((r) => String(r[dim] ?? ''));
+        this.drillDatasets = this.measureDefs().map((m) => ({
+          label: m.field,
+          data: rows.map((r) => Number(r[m.alias]) || 0),
+        }));
+        this.renderedStack = target;
+        this.drillLoading = false;
+        this.render();
+      })
+      .catch(() => {
+        this.drillLoading = false;
+        this.drillError = 'Could not load drill-down data.';
+        this.drillStack = this.renderedStack;   // keep breadcrumb in sync with what's on screen
+      });
+  }
+
+  /** Clones the saved query config but groups by a single dimension and adds one '=' filter per ancestor. */
+  private buildLevelConfig(dim: string, target: DrillStep[]): Record<string, unknown> {
+    // `drillPath` is a client-only hint for the hierarchy; it never goes to the query endpoint.
+    const { drillPath, ...base } = (this.spec.databaseConfig ?? {}) as any;
+    const baseRules = Array.isArray(base?.filters?.rules) ? base.filters.rules : [];
+    const drillRules = target.map((step) => ({ field: step.field, operator: '=', value: step.value }));
+    return {
+      ...base,
+      dimensions: [dim],
+      filters: { condition: 'AND', rules: [...baseRules, ...drillRules] },
+    };
+  }
+
+  // ---- rendering --------------------------------------------------------------
+
+  /** The spec to draw: the drilled labels/series if present, otherwise the untouched base spec. */
+  private currentSpec(): WidgetSpec {
+    if (this.drillLabels && this.drillDatasets) {
+      const trail = this.drillStack.map((s) => s.value).join(' › ');
+      return {
+        ...this.spec,
+        labels: this.drillLabels,
+        datasets: this.drillDatasets,
+        title: trail ? `${this.spec.title} — ${trail}` : this.spec.title,
+      };
+    }
+    return this.spec;
+  }
+
   private render() {
     this.chart?.destroy();
     this.chart = undefined;
     if (!this.spec.chartType || !this.canvas) return;   // KPI/table update via template bindings
-    this.chart = new Chart(this.canvas.nativeElement.getContext('2d')!, buildChartConfig(this.spec, true));
+
+    const cfg = buildChartConfig(this.currentSpec(), true);
+    if (this.isDrillable()) {
+      cfg.options = cfg.options ?? {};
+      cfg.options.onClick = (evt: any, _els: unknown, chart: Chart) => this.onPointClick(chart, evt);
+    }
+    this.chart = new Chart(this.canvas.nativeElement.getContext('2d')!, cfg);
+    this.canvas.nativeElement.style.cursor = this.canDrillDown() ? 'pointer' : 'default';
   }
 }
 
@@ -175,6 +374,16 @@ export function buildChartConfig(s: WidgetSpec, compact: boolean): any {
   const showLegend = s.multiColor || s.datasets.length > 1;
   const cartesian = s.chartType === 'bar' || s.chartType === 'line';
 
+  const plugins: any = {
+    legend: { display: showLegend, position: s.legendPosition || 'bottom', labels: { usePointStyle: true, boxWidth: 8, font: { size: fontSize } } }
+  };
+  // Custom hover tooltip — proof scope: line charts only. Replaces Chart.js's built-in
+  // tooltip with an HTML popup describing the hovered point (dimension, value, measure +
+  // aggregation). Other chart types keep the default tooltip until rollout is confirmed.
+  if (s.chartType === 'line') {
+    plugins.tooltip = { enabled: false, external: (ctx: any) => renderMetaTooltip(ctx, s) };
+  }
+
   return {
     type: s.chartType,
     data,
@@ -182,9 +391,7 @@ export function buildChartConfig(s: WidgetSpec, compact: boolean): any {
       responsive: true,
       maintainAspectRatio: false,
       indexAxis: s.indexAxis,
-      plugins: {
-        legend: { display: showLegend, position: s.legendPosition || 'bottom', labels: { usePointStyle: true, boxWidth: 8, font: { size: fontSize } } }
-      },
+      plugins,
       scales: s.chartType === 'scatter'
         ? { x: { type: 'linear', position: 'bottom', grid: { color: '#f1f5f9' }, ticks: { font: { size: fontSize }, color: '#94a3b8' } }, y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: fontSize }, color: '#94a3b8' } } }
         : cartesian
@@ -192,4 +399,90 @@ export function buildChartConfig(s: WidgetSpec, compact: boolean): any {
           : {}
     }
   };
+}
+
+/* ------------------------------------------------------------------ *
+ *  Custom hover tooltip (frontend-only, additive)
+ *  Renders a lightweight HTML popup for the hovered data point using
+ *  Chart.js's external-tooltip API. Shows only metadata the chart and
+ *  widget config already hold — no underlying records are accessed.
+ * ------------------------------------------------------------------ */
+
+/** Formats a measure with its aggregation, e.g. "SUM(revenue)". Falls back to the bare label. */
+function measureCaption(s: WidgetSpec, datasetLabel: string): string {
+  const label = datasetLabel || 'value';
+  const agg = s.editState?.aggregation;
+  return agg ? `${agg.toUpperCase()}(${label})` : label;
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
+
+/** Injects the popup's CSS once. Dynamically-created nodes miss Angular's view encapsulation,
+ *  so the styles live in a single namespaced (`wt-`) global block. */
+function ensureTooltipStyles(): void {
+  if (typeof document === 'undefined' || document.getElementById('wt-tooltip-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'wt-tooltip-styles';
+  style.textContent = `
+    .wt-tooltip { position: absolute; z-index: 20; pointer-events: none;
+      transform: translate(-50%, calc(-100% - 10px));
+      background: rgba(15,23,42,0.95); color: #f8fafc; border-radius: 8px; padding: 8px 10px;
+      font-size: 11px; line-height: 1.35; box-shadow: 0 6px 20px rgba(15,23,42,0.28);
+      white-space: nowrap; opacity: 0; transition: opacity 0.12s ease; }
+    .wt-tooltip .wt-dim { font-weight: 700; margin-bottom: 5px; color: #fff; }
+    .wt-tooltip .wt-row { display: flex; align-items: center; gap: 6px; }
+    .wt-tooltip .wt-row + .wt-row { margin-top: 3px; }
+    .wt-tooltip .wt-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+    .wt-tooltip .wt-metric { color: #cbd5e1; }
+    .wt-tooltip .wt-value { margin-left: auto; padding-left: 14px; font-weight: 700; color: #fff; }
+  `;
+  document.head.appendChild(style);
+}
+
+/**
+ * Chart.js external tooltip handler. Builds/positions an HTML popup inside the chart's own
+ * (positioned) container — never `position: fixed` — describing the hovered point:
+ *   • dimension / x label   • plotted value   • measure + aggregation (e.g. SUM(revenue))
+ */
+function renderMetaTooltip(context: { chart: Chart; tooltip: any }, s: WidgetSpec): void {
+  ensureTooltipStyles();
+  const { chart, tooltip } = context;
+  const container = chart.canvas.parentNode as HTMLElement | null;
+  if (!container) return;
+
+  let el = container.querySelector<HTMLDivElement>('.wt-tooltip');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'wt-tooltip';
+    container.appendChild(el);
+  }
+
+  // Chart.js sets opacity 0 when nothing is hovered.
+  if (!tooltip || tooltip.opacity === 0) {
+    el.style.opacity = '0';
+    return;
+  }
+
+  const points: any[] = tooltip.dataPoints ?? [];
+  if (points.length) {
+    const dimLabel = tooltip.title?.[0] ?? points[0].label ?? '';
+    const rows = points.map((p) => {
+      const caption = measureCaption(s, p.dataset?.label ?? '');
+      const swatch = p.dataset?.borderColor ?? p.dataset?.backgroundColor ?? s.primary;
+      return `<div class="wt-row">` +
+        `<span class="wt-dot" style="background:${escapeHtml(swatch)}"></span>` +
+        `<span class="wt-metric">${escapeHtml(caption)}</span>` +
+        `<span class="wt-value">${escapeHtml(p.formattedValue)}</span>` +
+        `</div>`;
+    }).join('');
+    el.innerHTML = `<div class="wt-dim">${escapeHtml(dimLabel)}</div>${rows}`;
+  }
+
+  // caretX/caretY are relative to the canvas, which fills the container — so this stays inside it.
+  el.style.opacity = '1';
+  el.style.left = `${tooltip.caretX}px`;
+  el.style.top = `${tooltip.caretY}px`;
 }

@@ -165,6 +165,20 @@
               </div>
             </div>
 
+            <!-- drill-down path (optional): extra dimensions to click-drill into on the finished chart -->
+            <div class="drill-block" *ngIf="showDrillPicker()">
+              <div class="section-label">DRILL-DOWN PATH
+                <span class="drill-hint">optional — click to drill from {{ currentDimName() }} into these, in order</span>
+              </div>
+              <div class="drill-chips">
+                <button class="d-chip" *ngFor="let c of drillCandidates()"
+                        [class.active]="isDrillSelected(c)" (click)="toggleDrill(c)">
+                  <span class="d-order" *ngIf="drillOrder(c) as n">{{ n }}</span>
+                  {{ c.name }}
+                </button>
+              </div>
+            </div>
+
             <!-- preview -->
             <div class="preview">
               <div class="ph" *ngIf="!hasColumns()">
