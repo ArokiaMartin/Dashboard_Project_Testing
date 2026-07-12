@@ -65,6 +65,14 @@ public class DashboardService {
                 ADD COLUMN IF NOT EXISTS schema_id UUID
                 """);
 
+        // Ensure data_uploads.schema_id exists before the backfill JOIN references it.
+        // IngestionMetadataRepository also adds this column but its @PostConstruct
+        // may run after ours since there is no declared dependency between the two beans.
+        jdbcTemplate.execute("""
+                ALTER TABLE data_uploads
+                ADD COLUMN IF NOT EXISTS schema_id UUID
+                """);
+
         // Backfill schema_id for dashboards created before this column existed, by
         // resolving the earliest widget's dataset upload_id to its schema_id. The CASE
         // guard ensures the ::uuid cast only runs on values that look like a UUID.
