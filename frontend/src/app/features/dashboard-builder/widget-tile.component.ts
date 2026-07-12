@@ -90,7 +90,7 @@ const PALETTE = ['#2563eb', '#60a5fa', '#93c5fd', '#1e40af', '#64748b', '#cbd5e1
 
       <!-- Drill-down breadcrumb: only shown once a widget has a multi-dimension hierarchy to drill. -->
       <div class="tile-drill" *ngIf="isDrillable()">
-        <button class="drill-crumb root" (click)="resetDrill()" [disabled]="drillStack.length === 0" title="Back to top level">
+        <button class="drill-crumb root" (click)="resetDrill()" [disabled]="!canReset()" title="Back to top level">
           {{ baseDimLabel() }}
         </button>
         <ng-container *ngFor="let step of drillStack; let i = index">
@@ -104,19 +104,29 @@ const PALETTE = ['#2563eb', '#60a5fa', '#93c5fd', '#1e40af', '#64748b', '#cbd5e1
       </div>
 
       <div class="tile-body">
-        <div class="tile-chart" *ngIf="spec.chartType"><canvas #cv></canvas></div>
+        <div class="tile-chart" *ngIf="showCanvas()"><canvas #cv></canvas></div>
 
-        <div class="tile-kpi" *ngIf="spec.viz === 'kpi'">
+        <div class="tile-kpi" *ngIf="showKpiNumber()" [class.drillable]="canDrillDown()" (click)="onKpiClick()">
           <div class="tk-num">{{ spec.kpiTotal | number }}</div>
           <div class="tk-cap">Total {{ spec.kpiLabel }}</div>
           <div class="tk-trend"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg> +12.5%</div>
+          <div class="tk-drillhint" *ngIf="canDrillDown()">click to break down by {{ currentDimLabel() }}</div>
         </div>
 
-        <div class="tile-table" *ngIf="spec.viz === 'table'">
+        <div class="tile-table" *ngIf="showRawTable()">
           <table>
             <thead><tr><th *ngFor="let c of spec.tableColumns">{{ c }}</th></tr></thead>
             <tbody>
-              <tr *ngFor="let r of spec.tableRows"><td *ngFor="let cell of r">{{ cell }}</td></tr>
+              <tr *ngFor="let r of spec.tableRows; let i = index" [class.drillable]="canDrillDown()" (click)="onRawRowClick(i)"><td *ngFor="let cell of r">{{ cell }}</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="tile-table" *ngIf="showDrillTable()">
+          <table>
+            <thead><tr><th *ngFor="let h of drillTableHeaders()">{{ h }}</th></tr></thead>
+            <tbody>
+              <tr *ngFor="let row of drillTableRows(); let i = index" [class.drillable]="canDrillDown()" (click)="onDrillRowClick(i)"><td *ngFor="let cell of row">{{ cell }}</td></tr>
             </tbody>
           </table>
         </div>
@@ -155,13 +165,18 @@ const PALETTE = ['#2563eb', '#60a5fa', '#93c5fd', '#1e40af', '#64748b', '#cbd5e1
     .tile-body { flex: 1; min-height: 0; position: relative; }
     .tile-chart { position: absolute; inset: 0; }
     .tile-kpi { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .tile-kpi.drillable { cursor: pointer; border-radius: 10px; transition: background 0.15s; }
+    .tile-kpi.drillable:hover { background: #f8fafc; }
     .tk-num { font-size: 40px; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; }
     .tk-cap { font-size: 12px; color: #94a3b8; text-transform: capitalize; margin-top: 2px; }
     .tk-trend { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: #059669; margin-top: 10px; }
+    .tk-drillhint { font-size: 10px; font-weight: 600; color: #2563eb; margin-top: 8px; }
     .tile-table { height: 100%; overflow: auto; }
     .tile-table table { width: 100%; border-collapse: collapse; }
     .tile-table th { text-align: left; padding: 7px 10px; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; border-bottom: 1px solid #eef1f6; position: sticky; top: 0; background: white; }
     .tile-table td { padding: 7px 10px; font-size: 12px; color: #334155; border-bottom: 1px solid #f4f6fb; white-space: nowrap; }
+    .tile-table tbody tr.drillable { cursor: pointer; }
+    .tile-table tbody tr.drillable:hover td { background: #eff6ff; color: #2563eb; }
   `]
 })
 export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy {
@@ -222,13 +237,14 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
     }
   }
 
-  ngOnDestroy() { this.chart?.destroy(); }
+  ngOnDestroy() { this.hideTooltip(); this.chart?.destroy(); }
 
-  /** First paint: show the builder-hydrated data immediately, then (for multi-dimension widgets)
-   *  refine the base to a clean single-dimension grouping so the hierarchy can be drilled. */
+  /** First paint: show the builder-hydrated data immediately, then (for multi-dimension charts)
+   *  refine the base to a clean single-dimension grouping so the hierarchy can be drilled.
+   *  KPIs and tables keep their hydrated base view (the number / raw rows) until the user drills. */
   private initRender() {
     this.render();
-    if (this.isDrillable() && !this.drillLabels) {
+    if (this.spec.chartType && this.isDrillable() && !this.drillLabels) {
       this.loadLevel([]);
     }
   }
@@ -236,20 +252,27 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
   // ---- drill hierarchy helpers ------------------------------------------------
 
   /**
-   * Ordered dimension fields = the drill hierarchy. Charts here plot exactly one dimension, so the
-   * hierarchy is that plotted dimension (level 0) followed by the widget's optional `drillPath`
-   * (finer dimensions to descend into). Both come straight from the saved query config.
+   * Ordered dimension fields = the drill hierarchy.
+   *  • Charts plot one dimension (level 0), then descend through the optional `drillPath`.
+   *  • KPIs have no base dimension — the hierarchy is the `drillPath` alone (drilled from the total).
+   *  • Tables carry an explicit `drillBase` (their first column) followed by the `drillPath`.
    */
   private hierarchy(): string[] {
     const db = this.spec.databaseConfig as any;
-    const base = Array.isArray(db?.dimensions) ? db.dimensions.map((d: unknown) => String(d)) : [];
     const path = Array.isArray(db?.drillPath) ? db.drillPath.map((d: unknown) => String(d)) : [];
-    return [...base.slice(0, 1), ...path];
+    if (this.spec.viz === 'kpi') return path;
+    const base = db?.drillBase
+      ? [String(db.drillBase)]
+      : (Array.isArray(db?.dimensions) ? db.dimensions.slice(0, 1).map((d: unknown) => String(d)) : []);
+    return [...base, ...path];
   }
 
-  /** Measures ({field, alias}) from the saved query config, used to read re-query result rows. */
+  /** Measures ({field, alias}) used to read re-query result rows. Tables carry theirs in `drillMeasures`. */
   private measureDefs(): { field: string; alias: string }[] {
-    const raw = (this.spec.databaseConfig as any)?.measures;
+    const db = this.spec.databaseConfig as any;
+    const raw = Array.isArray(db?.measures) && db.measures.length
+      ? db.measures
+      : (Array.isArray(db?.drillMeasures) ? db.drillMeasures : []);
     return Array.isArray(raw)
       ? raw
           .map((m: any) => ({ field: String(m?.field ?? ''), alias: String(m?.alias ?? m?.field ?? '') }))
@@ -257,34 +280,105 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
       : [];
   }
 
-  /** A widget can drill only if it's a Chart.js chart with more than one dimension and at least one measure. */
+  /** A widget is drillable when it has a measure to aggregate and at least one dimension below its base. */
   isDrillable(): boolean {
-    return !!this.spec.chartType && this.hierarchy().length > 1 && this.measureDefs().length > 0;
+    if (this.measureDefs().length === 0) return false;
+    if (this.spec.viz === 'kpi') return this.hierarchy().length >= 1;   // total → at least one drill dim
+    if (this.spec.viz === 'table') return this.hierarchy().length > 1;  // base column + at least one drill dim
+    return !!this.spec.chartType && this.hierarchy().length > 1;
   }
 
-  /** True while there's still a finer dimension to drill into below the current level. */
+  /** True once the user has drilled away from the base view (bars/table replace the number/raw rows). */
+  drillActive(): boolean { return this.drillLabels !== null; }
+
+  /** Whether the breadcrumb root can collapse the view back to its base. */
+  canReset(): boolean {
+    if (this.spec.viz === 'kpi' || this.spec.viz === 'table') return this.drillActive() || this.drillStack.length > 0;
+    return this.drillStack.length > 0;
+  }
+
+  /** True while a click on the current view would drill one level deeper. */
   canDrillDown(): boolean {
-    return this.isDrillable() && this.drillStack.length < this.hierarchy().length - 1;
+    if (!this.isDrillable()) return false;
+    if (this.spec.viz === 'kpi' && !this.drillActive()) return true;   // the number always opens its first breakdown
+    return this.drillStack.length < this.hierarchy().length - 1;
   }
 
   private prettyField(field: string): string {
     return field ? field.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : field;
   }
-  baseDimLabel(): string { return this.prettyField(this.hierarchy()[0] ?? 'All'); }
+  baseDimLabel(): string {
+    if (this.spec.viz === 'kpi') return this.spec.kpiLabel ? `Total ${this.prettyField(this.spec.kpiLabel)}` : 'Total';
+    return this.prettyField(this.hierarchy()[0] ?? 'All');
+  }
   /** The next-finer dimension a click would break the current level down into. */
-  currentDimLabel(): string { return this.prettyField(this.hierarchy()[this.drillStack.length + 1] ?? ''); }
+  currentDimLabel(): string {
+    if (this.spec.viz === 'kpi' && !this.drillActive()) return this.prettyField(this.hierarchy()[0] ?? '');
+    return this.prettyField(this.hierarchy()[this.drillStack.length + 1] ?? '');
+  }
+
+  // ---- what the tile body shows (base view vs drilled view) ----
+  showCanvas(): boolean { return !!this.spec.chartType || (this.spec.viz === 'kpi' && this.drillActive()); }
+  showKpiNumber(): boolean { return this.spec.viz === 'kpi' && !this.drillActive(); }
+  showRawTable(): boolean { return this.spec.viz === 'table' && !this.drillActive(); }
+  showDrillTable(): boolean { return this.spec.viz === 'table' && this.drillActive(); }
+
+  /** Header row for a drilled table: the current dimension, then one column per aggregated measure. */
+  drillTableHeaders(): string[] {
+    const dim = this.prettyField(this.hierarchy()[this.drillStack.length] ?? '');
+    return [dim, ...(this.drillDatasets ?? []).map((d) => this.prettyField(d.label))];
+  }
+
+  /** Body rows for a drilled table: each dimension value with its aggregated measure values. */
+  drillTableRows(): (string | number)[][] {
+    const labels = this.drillLabels ?? [];
+    const datasets = this.drillDatasets ?? [];
+    return labels.map((label, i) => [label, ...datasets.map((d) => d.data[i] ?? 0)]);
+  }
 
   // ---- drill actions ----------------------------------------------------------
 
+  /** Push the clicked value onto the stack and load the next-finer level. */
+  private drillInto(value: string): void {
+    if (!this.canDrillDown() || this.drillLoading) return;
+    const field = this.hierarchy()[this.drillStack.length];
+    if (!field) return;
+    this.loadLevel([...this.drillStack, { field, value }]);
+  }
+
   /** Click on a bar/point/slice → drill into that category using the next dimension in the hierarchy. */
   private onPointClick(chart: Chart, event: any): void {
-    if (!this.canDrillDown() || this.drillLoading) return;
     const els = chart.getElementsAtEventForMode(event, 'nearest', { intersect: true }, true);
     if (!els.length) return;
     const label = chart.data.labels?.[els[0].index];
     if (label === undefined || label === null) return;
-    const field = this.hierarchy()[this.drillStack.length];
-    this.loadLevel([...this.drillStack, { field, value: String(label) }]);
+    this.drillInto(String(label));
+  }
+
+  /** Click on a KPI's total → open its first breakdown (grouped by the first drill dimension). */
+  onKpiClick(): void {
+    if (this.spec.viz !== 'kpi' || this.drillActive() || !this.isDrillable() || this.drillLoading) return;
+    this.loadLevel([]);
+  }
+
+  /** Click on a raw-table row → drill using that row's first-column (base dimension) value. */
+  onRawRowClick(rowIndex: number): void {
+    if (!this.canDrillDown() || this.drillLoading) return;
+    const db = this.spec.databaseConfig as any;
+    const cols = this.spec.tableColumns ?? [];
+    const display = db?.drillBaseDisplay ? String(db.drillBaseDisplay) : '';
+    let idx = display ? cols.indexOf(display) : 0;
+    if (idx < 0) idx = 0;
+    const value = (this.spec.tableRows ?? [])[rowIndex]?.[idx];
+    if (value === undefined || value === null) return;
+    this.drillInto(String(value));
+  }
+
+  /** Click on a drilled-table row → drill deeper using that row's dimension value. */
+  onDrillRowClick(rowIndex: number): void {
+    const value = (this.drillLabels ?? [])[rowIndex];
+    if (value === undefined || value === null) return;
+    this.drillInto(String(value));
   }
 
   /** Breadcrumb: jump back up to a given depth (0 = first crumb after the root). */
@@ -294,10 +388,24 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
     target.length ? this.loadLevel(target) : this.resetDrill();
   }
 
-  /** Breadcrumb root: return to the widget's original top-level view. */
+  /** Breadcrumb root: return to the widget's base view (chart base grouping / KPI number / raw table). */
   resetDrill(): void {
+    if (this.spec.viz === 'kpi' || this.spec.viz === 'table') {
+      if (this.drillActive() || this.drillStack.length) this.collapseToBase();
+      return;
+    }
     if (!this.drillStack.length && !this.renderedStack.length) return;
     this.loadLevel([]);
+  }
+
+  /** Drop a KPI/table back to its non-drilled base view (the number / the raw rows). */
+  private collapseToBase(): void {
+    this.drillStack = [];
+    this.renderedStack = [];
+    this.drillLabels = null;
+    this.drillDatasets = null;
+    this.drillError = '';
+    this.scheduleRender();
   }
 
   private resetDrillState(): void {
@@ -309,9 +417,12 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
     this.drillError = '';
   }
 
+  /** Deferred render so a toggled *ngIf (e.g. a KPI's drill canvas) exists before we draw into it. */
+  private scheduleRender(): void { setTimeout(() => this.render(), 0); }
+
   /**
    * Re-query one drill level through the SAME execute-query path the builder uses (no new endpoint or
-   * query shape), then re-render the same chart. `target` is the ancestor stack for the level to show.
+   * query shape), then re-render. `target` is the ancestor stack for the level to show.
    */
   private loadLevel(target: DrillStep[]): void {
     const dim = this.hierarchy()[target.length];
@@ -324,14 +435,14 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
     this.backend.executeQuery(this.buildLevelConfig(dim, target))
       .then((res) => {
         const rows = res.data ?? [];
-        this.drillLabels = rows.map((r) => String(r[dim] ?? ''));
+        this.drillLabels = rows.map((r) => String(this.rowValue(r, dim) ?? ''));
         this.drillDatasets = this.measureDefs().map((m) => ({
           label: m.field,
-          data: rows.map((r) => Number(r[m.alias]) || 0),
+          data: rows.map((r) => Number(this.rowValue(r, m.alias)) || 0),
         }));
         this.renderedStack = target;
         this.drillLoading = false;
-        this.render();
+        this.scheduleRender();
       })
       .catch(() => {
         this.drillLoading = false;
@@ -340,27 +451,42 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
       });
   }
 
+  /** Reads a result-row value by field, tolerating the backend aliasing dots to underscores
+   *  (e.g. a `patient.gender` grouping comes back as the `patient_gender` column). */
+  private rowValue(row: Record<string, unknown>, field: string): unknown {
+    if (row[field] !== undefined) return row[field];
+    return row[field.replace(/\./g, '_')];
+  }
+
   /** Clones the saved query config but groups by a single dimension and adds one '=' filter per ancestor. */
   private buildLevelConfig(dim: string, target: DrillStep[]): Record<string, unknown> {
-    // `drillPath` is a client-only hint for the hierarchy; it never goes to the query endpoint.
-    const { drillPath, ...base } = (this.spec.databaseConfig ?? {}) as any;
+    // Client-only drill hints never go to the query endpoint; measures fall back to a table's drillMeasures.
+    const { drillPath, drillBase, drillBaseDisplay, drillMeasures, ...base } = (this.spec.databaseConfig ?? {}) as any;
+    const measures = Array.isArray(base?.measures) && base.measures.length
+      ? base.measures
+      : (Array.isArray(drillMeasures) ? drillMeasures : []);
     const baseRules = Array.isArray(base?.filters?.rules) ? base.filters.rules : [];
     const drillRules = target.map((step) => ({ field: step.field, operator: '=', value: step.value }));
     return {
       ...base,
       dimensions: [dim],
+      measures,
       filters: { condition: 'AND', rules: [...baseRules, ...drillRules] },
     };
   }
 
   // ---- rendering --------------------------------------------------------------
 
-  /** The spec to draw: the drilled labels/series if present, otherwise the untouched base spec. */
+  /** The spec to draw: the drilled labels/series if present, otherwise the untouched base spec.
+   *  A drilled KPI renders as a single-colour bar chart of its breakdown. */
   private currentSpec(): WidgetSpec {
     if (this.drillLabels && this.drillDatasets) {
       const trail = this.drillStack.map((s) => s.value).join(' › ');
+      const chartType = this.spec.chartType ?? (this.spec.viz === 'kpi' ? 'bar' : null);
       return {
         ...this.spec,
+        chartType,
+        multiColor: this.spec.viz === 'kpi' ? false : this.spec.multiColor,
         labels: this.drillLabels,
         datasets: this.drillDatasets,
         title: trail ? `${this.spec.title} — ${trail}` : this.spec.title,
@@ -369,12 +495,23 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
     return this.spec;
   }
 
+  /** Chart.js doesn't fire its external-tooltip callback on destroy, so a drilldown that rebuilds
+   *  the chart would leave the custom popup frozen on screen. Hide it whenever we (re)render. */
+  private hideTooltip(): void {
+    const el = this.canvas?.nativeElement?.parentElement?.querySelector<HTMLElement>('.wt-tooltip');
+    if (el) el.style.opacity = '0';
+  }
+
   private render() {
+    this.hideTooltip();
     this.chart?.destroy();
     this.chart = undefined;
-    if (!this.spec.chartType || !this.canvas) return;   // KPI/table update via template bindings
 
-    const cfg = buildChartConfig(this.currentSpec(), true);
+    const eff = this.currentSpec();
+    // Tables render via template bindings; charts and drilled KPIs draw on the canvas.
+    if (!eff.chartType || this.spec.viz === 'table' || !this.canvas) return;
+
+    const cfg = buildChartConfig(eff, true);
     if (this.isDrillable()) {
       cfg.options = cfg.options ?? {};
       cfg.options.onClick = (evt: any, _els: unknown, chart: Chart) => this.onPointClick(chart, evt);

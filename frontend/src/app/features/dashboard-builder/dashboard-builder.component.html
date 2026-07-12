@@ -208,10 +208,10 @@
               </div>
             </div>
 
-            <!-- drill-down path (optional): extra dimensions to click-drill into on the finished chart -->
+            <!-- drill-down path (optional): extra dimensions to click-drill into on the finished widget -->
             <div class="drill-block" *ngIf="showDrillPicker()">
               <div class="section-label">DRILL-DOWN PATH
-                <span class="drill-hint">optional — click to drill from {{ currentDimName() }} into these, in order</span>
+                <span class="drill-hint">optional — click to drill from {{ drillFromLabel() }} into these, in order</span>
               </div>
               <div class="drill-chips">
                 <button class="d-chip" *ngFor="let c of drillCandidates()"

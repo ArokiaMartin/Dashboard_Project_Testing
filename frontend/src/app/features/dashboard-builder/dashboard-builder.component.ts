@@ -939,11 +939,37 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
 
     const dataset = this.selectedDatasetId || this.datasets.find((d) => d.id === this.selectedDatasetId)?.table_name || '';
 
-    // Drill path: extra dimension columns to descend into (db field names, in order). Charts only.
+    // Drill path: extra dimension columns to descend into (db field names, in order).
+    // Supported for charts (drill from the plotted dimension), KPIs (drill from the total),
+    // and tables (drill from the first dimension column). Scatter plots don't drill.
     const plottedDim = this.currentDimName();
-    const drillPath = viz === 'scatter' || viz === 'table' || !this.isChartViz(viz) || !plottedDim
-      ? []
-      : this.validDrillNames().map((n) => this.toDbField(n));
+    const drillPathFields = this.validDrillNames().map((n) => this.toDbField(n));
+    let drillPath: string[] = [];
+    let drillBase: string | undefined;         // table only: db field of the row-level drill key
+    let drillBaseDisplay: string | undefined;  // table only: display name of that column
+    let drillMeasures: Array<Record<string, unknown>> | undefined; // table only: measures to aggregate while drilling
+
+    if (viz === 'scatter') {
+      // no drill-down
+    } else if (viz === 'kpi') {
+      // A KPI drills straight from its single total into the extra dimensions, in order.
+      drillPath = drillPathFields;
+    } else if (viz === 'table') {
+      // A table drills from its first dimension column into the extra dimensions, aggregating measures.
+      const baseDim = this.dimCols()[0];
+      if (baseDim && drillPathFields.length && this.measureCols().length) {
+        drillBase = this.toDbField(baseDim.name);
+        drillBaseDisplay = baseDim.name;
+        drillPath = drillPathFields;
+        drillMeasures = this.measureCols().map((m) => ({
+          field: this.toDbField(m.name),
+          aggregation: this.aggregation.toUpperCase(),
+          alias: `${this.aggregation}_${this.toAlias(this.toDbField(m.name))}`
+        }));
+      }
+    } else if (this.isChartViz(viz) && plottedDim) {
+      drillPath = drillPathFields;
+    }
 
     return {
       dataset,
@@ -954,7 +980,10 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
       having: [],
       sorting,
       pagination,
-      drillPath
+      drillPath,
+      drillBase,
+      drillBaseDisplay,
+      drillMeasures
     };
   }
 
@@ -1156,16 +1185,33 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
 
   // ---- drill-down path picker (extra dimension columns to drill into, below the plotted one) ----
 
-  /** Dimension columns in the dataset that could be drilled into: any non-numeric column that isn't the plotted one. */
+  /** Dimension columns in the dataset that could be drilled into: any non-numeric column that isn't
+   *  the plotted dimension (charts) or the table's first dimension column (tables). */
   drillCandidates(): Column[] {
     const plotted = this.currentDimName();
-    return this.compat.columns.filter(c => c.type !== 'number' && c.name !== plotted);
+    const tableBase = this.selectedViz === 'table' ? this.dimCols()[0]?.name ?? null : null;
+    return this.compat.columns.filter(c => c.type !== 'number' && c.name !== plotted && c.name !== tableBase);
   }
 
-  /** Show the picker only for grouped charts that have a single plotted dimension and something to drill into. */
+  /** Show the drill picker for charts, KPIs and tables that have a base level and something to drill into.
+   *  Charts drill from their single plotted dimension; KPIs from the total; tables from their first
+   *  dimension column (which also needs a measure to aggregate on the way down). Scatter can't drill. */
   showDrillPicker(): boolean {
-    return this.hasColumns() && this.isChartViz(this.selectedViz) && this.selectedViz !== 'scatter'
-      && this.currentDimName() !== null && this.drillCandidates().length > 0;
+    if (!this.hasColumns() || this.selectedViz === 'scatter') return false;
+    if (this.selectedViz === 'kpi') {
+      return this.measureCols().length >= 1 && this.drillCandidates().length > 0;
+    }
+    if (this.selectedViz === 'table') {
+      return this.dimCols().length >= 1 && this.measureCols().length >= 1 && this.drillCandidates().length > 0;
+    }
+    return this.isChartViz(this.selectedViz) && this.currentDimName() !== null && this.drillCandidates().length > 0;
+  }
+
+  /** Human label for where a drill starts, shown in the picker hint (chart dimension / KPI total / table column). */
+  drillFromLabel(): string {
+    if (this.selectedViz === 'kpi') return 'the total';
+    if (this.selectedViz === 'table') return this.dimCols()[0]?.name ?? 'the first column';
+    return this.currentDimName() ?? 'the dimension';
   }
 
   isDrillSelected(c: Column): boolean { return this.drillPathNames.includes(c.name); }
