@@ -3,7 +3,9 @@ import com.example.dashboard_backend.service.JsonIngestionService;
 
 import com.example.dashboard_backend.model.IngestRequest;
 import com.example.dashboard_backend.model.IngestResponse;
+import com.example.dashboard_backend.model.SchemaBasedIngestRequest;
 import com.example.dashboard_backend.model.UploadAnalysisResponse;
+import com.example.dashboard_backend.service.SchemaBasedIngestionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
@@ -32,11 +34,14 @@ public class JsonIngestionController {
 
     private final JsonIngestionService jsonIngestionService;
     private final CsvIngestionService csvIngestionService;
+    private final SchemaBasedIngestionService schemaBasedIngestionService;
     public JsonIngestionController(
             JsonIngestionService jsonIngestionService,
-            CsvIngestionService csvIngestionService) {
+            CsvIngestionService csvIngestionService,
+            SchemaBasedIngestionService schemaBasedIngestionService) {
         this.jsonIngestionService = jsonIngestionService;
         this.csvIngestionService = csvIngestionService;
+        this.schemaBasedIngestionService = schemaBasedIngestionService;
     }
 
     @Operation(summary = "Analyze uploaded JSON file", description = "Accepts a multipart JSON file upload, inspects its structure, and returns inferred field metadata with sample rows before ingestion.", responses = {
@@ -64,5 +69,17 @@ public class JsonIngestionController {
     @PostMapping("/data/ingest")
     public IngestResponse ingestJson(@org.springframework.web.bind.annotation.RequestBody IngestRequest request) {
         return jsonIngestionService.ingest(request);
+    }
+
+    @Operation(summary = "Ingest data using a predefined schema", description = "Ingest JSON data into a table using a previously uploaded schema. Data is validated against the schema before ingestion.", responses = {
+            @ApiResponse(responseCode = "200", description = "Data ingested successfully", content = @Content(mediaType = "application/json", schema = @Schema(implementation = IngestResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Validation failed or invalid request"),
+            @ApiResponse(responseCode = "404", description = "Schema not found")
+    })
+    @PostMapping("/data/ingest-with-schema")
+    public ResponseEntity<IngestResponse> ingestWithSchema(
+            @org.springframework.web.bind.annotation.RequestBody SchemaBasedIngestRequest request) {
+        IngestResponse response = schemaBasedIngestionService.ingestWithSchema(request);
+        return ResponseEntity.ok(response);
     }
 }

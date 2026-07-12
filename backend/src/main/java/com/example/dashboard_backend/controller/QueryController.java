@@ -74,7 +74,11 @@ public class QueryController {
                 String alias = quoteIdentifier(validateIdentifier(measure.get("alias").asText(), "measure alias"));
 
                 String measureTarget = switch (aggregation) {
-                    case "SUM", "AVG", "MIN", "MAX" -> "CAST(NULLIF(" + field + ", '') AS NUMERIC)";
+                    // Only cast strictly-numeric text to NUMERIC; empty/whitespace/non-numeric
+                    // values become NULL (ignored by the aggregate) instead of failing the query.
+                    case "SUM", "AVG", "MIN", "MAX" ->
+                        "CASE WHEN trim(" + field + "::text) ~ '^-?[0-9]+(\\.[0-9]+)?$' "
+                        + "THEN CAST(trim(" + field + "::text) AS NUMERIC) ELSE NULL END";
                     case "COUNT" -> "NULLIF(" + field + ", '')";
                     default -> throw new IllegalArgumentException("Invalid aggregation: " + aggregation);
                 };

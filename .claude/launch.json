@@ -10,8 +10,8 @@
     {
       "name": "backend",
       "runtimeExecutable": "cmd",
-      "runtimeArgs": ["/c", "C:\\Users\\amartinn\\Downloads\\Dashboard_Project_Testing-kishore-backup-20260707\\.claude\\run-backend.cmd"],
-      "port": 8081
+      "runtimeArgs": ["/c", "cd backend && mvn spring-boot:run"],
+      "port": 8080
     }
   ]
 }

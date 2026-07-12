@@ -58,6 +58,36 @@ public class DashboardService {
                 ALTER TABLE dashboard_widgets
                 ADD COLUMN IF NOT EXISTS generated_sql TEXT
                 """);
+
+        // Scope each dashboard to the schema (dataset) it was built from.
+        jdbcTemplate.execute("""
+                ALTER TABLE dashboards
+                ADD COLUMN IF NOT EXISTS schema_id UUID
+                """);
+
+        // Backfill schema_id for dashboards created before this column existed, by
+        // resolving the earliest widget's dataset upload_id to its schema_id. The CASE
+        // guard ensures the ::uuid cast only runs on values that look like a UUID.
+        jdbcTemplate.execute("""
+                UPDATE dashboards d
+                SET schema_id = sub.schema_id
+                FROM (
+                  SELECT DISTINCT ON (v.dashboard_id) v.dashboard_id, du.schema_id
+                  FROM (
+                    SELECT dashboard_id,
+                      CASE WHEN database_config_json->>'dataset' ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                           THEN (database_config_json->>'dataset')::uuid END AS upload_id,
+                      created_at
+                    FROM dashboard_widgets
+                  ) v
+                  JOIN data_uploads du ON du.id = v.upload_id
+                  WHERE v.upload_id IS NOT NULL AND du.schema_id IS NOT NULL
+                  ORDER BY v.dashboard_id, v.created_at ASC
+                ) sub
+                WHERE d.dashboard_id = sub.dashboard_id
+                  AND d.schema_id IS NULL
+                  AND sub.schema_id IS NOT NULL
+                """);
     }
 
         public Map<String, Object> createDashboard(Map<String, Object> request) {
@@ -65,16 +95,18 @@ public class DashboardService {
         String userId = defaultIfBlank(asText(request.get("user_id")), "anonymous");
         String name = defaultIfBlank(asText(request.get("name")), "Untitled Dashboard");
         String description = asText(request.get("description"));
+        UUID schemaId = parseUuidOrNull(asText(request.get("schema_id")));
 
         jdbcTemplate.update(
             """
-            INSERT INTO dashboards (dashboard_id, user_id, name, description)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO dashboards (dashboard_id, user_id, name, description, schema_id)
+            VALUES (?, ?, ?, ?, ?)
             """,
             dashboardId,
             userId,
             name,
-            description
+            description,
+            schemaId
         );
 
         List<Map<String, Object>> widgets = extractWidgets(request.get("widgets"));
@@ -117,16 +149,18 @@ public class DashboardService {
         String userId = defaultIfBlank(asText(request.get("user_id")), "anonymous");
         String name = defaultIfBlank(asText(request.get("name")), "Untitled Dashboard");
         String description = asText(request.get("description"));
+        UUID schemaId = parseUuidOrNull(asText(request.get("schema_id")));
 
         jdbcTemplate.update(
             """
             UPDATE dashboards
-            SET user_id = ?, name = ?, description = ?, updated_at = CURRENT_TIMESTAMP
+            SET user_id = ?, name = ?, description = ?, schema_id = COALESCE(?, schema_id), updated_at = CURRENT_TIMESTAMP
             WHERE dashboard_id = ?
             """,
             userId,
             name,
             description,
+            schemaId,
             dashboardId
         );
 
@@ -161,7 +195,7 @@ public class DashboardService {
     public List<Map<String, Object>> getDashboards() {
         List<Map<String, Object>> dashboards = jdbcTemplate.queryForList(
                 """
-                SELECT dashboard_id, user_id, name, description, created_at, updated_at
+                SELECT dashboard_id, user_id, name, description, schema_id, created_at, updated_at
                 FROM dashboards
                 ORDER BY created_at DESC
                 """
@@ -181,7 +215,7 @@ public class DashboardService {
     public Map<String, Object> getDashboardById(UUID dashboardId) {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 """
-                SELECT dashboard_id, user_id, name, description, created_at, updated_at
+                SELECT dashboard_id, user_id, name, description, schema_id, created_at, updated_at
                 FROM dashboards
                 WHERE dashboard_id = ?
                 """,
@@ -216,7 +250,7 @@ public class DashboardService {
     public List<Map<String, Object>> getDashboardsByUserId(String userId) {
         List<Map<String, Object>> dashboards = jdbcTemplate.queryForList(
                 """
-                SELECT dashboard_id, user_id, name, description, created_at, updated_at
+                SELECT dashboard_id, user_id, name, description, schema_id, created_at, updated_at
                 FROM dashboards
                 WHERE user_id = ?
                 ORDER BY created_at DESC
@@ -314,6 +348,17 @@ public class DashboardService {
 
     private String asText(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private UUID parseUuidOrNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value.trim());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private String defaultIfBlank(String value, String fallback) {

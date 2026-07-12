@@ -28,7 +28,8 @@ public class DatasetController {
     @GetMapping
     public List<Map<String, Object>> listDatasets() {
         return jdbcTemplate.queryForList(
-            "SELECT id, table_name, original_filename, row_count, column_count, status, created_at " +
+            "SELECT id, table_name, original_filename, row_count, column_count, status, created_at, " +
+            "schema_id, version_number " +
             "FROM data_uploads ORDER BY created_at DESC"
         );
     }
@@ -48,10 +49,23 @@ public class DatasetController {
 
         String tableName = (String) meta.get(0).get("table_name");
 
-        List<Map<String, Object>> fields = jdbcTemplate.queryForList(
+        List<Map<String, Object>> allFields = jdbcTemplate.queryForList(
             "SELECT field_name, normalized_field_name, field_type FROM field_metadata WHERE upload_id = ? ORDER BY id",
             uploadId
         );
+
+        // A nested JSON upload stores field metadata for its root table AND every generated child
+        // table under the same upload_id. Only the root table is shown here, so keep just the fields
+        // whose column actually exists on that table — otherwise the SELECT would reference child-only
+        // columns (e.g. array element fields) that don't exist on the root table.
+        Set<String> realColumns = new HashSet<>(jdbcTemplate.queryForList(
+            "SELECT column_name FROM information_schema.columns " +
+            "WHERE table_schema = current_schema() AND table_name = ?",
+            String.class, tableName
+        ));
+        List<Map<String, Object>> fields = allFields.stream()
+            .filter(f -> realColumns.contains((String) f.get("normalized_field_name")))
+            .collect(Collectors.toList());
 
         // Display names (original CSV/JSON headers) shown to the user...
         List<String> columns = fields.stream()
@@ -142,7 +156,11 @@ public class DatasetController {
             if (!Set.of("SUM", "AVG", "MIN", "MAX", "COUNT").contains(agg)) {
                 throw new IllegalArgumentException("Invalid aggregation: " + agg);
             }
-            String expr = agg + "(CAST(" + quoteIdentifier(field) + " AS NUMERIC))";
+            String col = quoteIdentifier(field);
+            // Only cast strictly-numeric text; empty/whitespace/non-numeric values become NULL
+            // (ignored by the aggregate) instead of failing the whole query.
+            String expr = agg + "(CASE WHEN trim(" + col + "::text) ~ '^-?[0-9]+(\\.[0-9]+)?$' "
+                + "THEN CAST(trim(" + col + "::text) AS NUMERIC) ELSE NULL END)";
             if (firstMeasureExpr == null) firstMeasureExpr = expr;
             selectParts.add(expr + " AS " + quoteIdentifier(field));
         }
@@ -198,11 +216,37 @@ public class DatasetController {
 
         String tableName = (String) meta.get(0).get("table_name");
 
+        // A physical table can be shared by multiple data versions of the same schema (each version is
+        // a separate data_uploads row / upload_id). Only remove this version's rows here, and drop the
+        // table itself solely when no other upload still references it.
         try {
-            jdbcTemplate.execute("DROP TABLE IF EXISTS " + quoteIdentifier(tableName));
+            jdbcTemplate.update(
+                "DELETE FROM " + quoteIdentifier(tableName) + " WHERE upload_id = ?",
+                uploadId
+            );
         } catch (Exception ex) {
-            // Metadata is still removed below, but a failed drop leaves an orphaned table — surface it in logs.
-            log.warn("Failed to drop backing table '{}' for upload {}", tableName, uploadId, ex);
+            log.warn("Failed to delete rows for upload {} from table '{}'", uploadId, tableName, ex);
+        }
+
+        Integer otherUploads = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM data_uploads WHERE table_name = ? AND id <> ?",
+            Integer.class, tableName, uploadId
+        );
+        if (otherUploads == null || otherUploads == 0) {
+            try {
+                jdbcTemplate.execute("DROP TABLE IF EXISTS " + quoteIdentifier(tableName));
+            } catch (Exception ex) {
+                // Metadata is still removed below, but a failed drop leaves an orphaned table — surface it in logs.
+                log.warn("Failed to drop backing table '{}' for upload {}", tableName, uploadId, ex);
+            }
+        }
+
+        // schema_data_ingestion has a FK on upload_id -> data_uploads; purge those rows first,
+        // otherwise deleting the upload fails with a foreign key violation.
+        try {
+            jdbcTemplate.update("DELETE FROM schema_data_ingestion WHERE upload_id = ?", uploadId);
+        } catch (Exception ex) {
+            log.warn("Failed to delete schema_data_ingestion rows for upload {}", uploadId, ex);
         }
 
         jdbcTemplate.update("DELETE FROM field_metadata WHERE upload_id = ?", uploadId);
