@@ -90,23 +90,64 @@ export class ChartCompatibilityService {
 
   /** THE RULE SET — which column combinations each chart accepts. */
   isAllowed(key: string, cols: Column[]): boolean {
-    if (!cols.length) return false;
     const s = this.signature(cols);
+    return this.isAllowedCounts(key, s.dim, s.num);
+  }
+
+  /** The rules expressed on raw counts, so hypothetical selections can be tested without real columns. */
+  private isAllowedCounts(key: string, dim: number, num: number): boolean {
+    const total = dim + num;
+    if (total < 1) return false;
     switch (key) {
-      case 'kpi': return s.num === 1 && s.dim === 0;
+      case 'kpi': return num === 1 && dim === 0;
       case 'bar':
       case 'hbar':
       case 'line':
-      case 'area': return s.dim === 1 && s.num >= 1;
+      case 'area': return dim === 1 && num >= 1;
       case 'pie':
       case 'donut':
-      case 'polar': return s.dim === 1 && s.num === 1;
-      case 'stacked': return s.dim === 1 && s.num >= 2;
-      case 'radar': return s.dim === 1 && s.num >= 2;
-      case 'scatter': return s.num === 2 && s.dim === 0;
-      case 'table': return s.total >= 1;
+      case 'polar': return dim === 1 && num === 1;
+      case 'stacked':
+      case 'radar': return dim === 1 && num >= 2;
+      case 'scatter': return num === 2 && dim === 0;
+      case 'table': return total >= 1;
       default: return false;
     }
+  }
+
+  /**
+   * Would adding `candidate` to `selected` still let the chosen chart be satisfied — possibly after
+   * adding more columns, up to the 4-column limit? Drives enabling/disabling of columns in the picker.
+   * With no chart chosen yet, only the 4-column limit applies (any column can still start a selection).
+   */
+  canAddColumn(vizKey: string | null, selected: Column[], candidate: Column, all: Column[]): boolean {
+    if (selected.length >= 4) return false;                      // the existing 4-column cap
+    if (!vizKey) return true;                                    // no chart chosen → only the cap applies
+    const s = this.signature(selected);
+    const addDim = candidate.type !== 'number' ? 1 : 0;
+    const dim = s.dim + addDim;
+    const num = s.num + (addDim ? 0 : 1);
+    const budget = 4 - (selected.length + 1);                   // columns still addable after this one
+    const isSel = (c: Column) => selected.some(x => x.name === c.name);
+    const pool = all.filter(c => !isSel(c) && c.name !== candidate.name);
+    const availDim = pool.filter(c => c.type !== 'number').length;
+    const availNum = pool.filter(c => c.type === 'number').length;
+    for (let da = 0; da <= Math.min(budget, availDim); da++) {
+      for (let na = 0; na <= Math.min(budget - da, availNum); na++) {
+        if (this.isAllowedCounts(vizKey, dim + da, num + na)) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Best-fit chart for the current columns (Power BI-style "suggested"), or null when only a table fits. */
+  recommend(cols: Column[]): string | null {
+    if (!cols.length) return null;
+    const hasDate = cols.some(c => c.type === 'date');
+    const order = hasDate
+      ? ['line', 'area', 'bar', 'stacked', 'radar', 'pie', 'donut', 'polar', 'scatter', 'kpi']
+      : ['bar', 'hbar', 'line', 'pie', 'donut', 'stacked', 'radar', 'polar', 'area', 'scatter', 'kpi'];
+    return order.find(k => this.isAllowed(k, cols)) ?? null;
   }
 
   // ---------- dummy data ----------

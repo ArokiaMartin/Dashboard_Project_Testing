@@ -44,7 +44,11 @@
           <div class="rail-head">AVAILABLE COLUMNS</div>
           <div class="rail-hint">Pick 2–3 columns to see compatible charts.</div>
           <button class="col-item" *ngFor="let c of compat.columns"
-                  [class.active]="isSelected(c)" (click)="toggleCol(c)">
+                  [class.active]="isSelected(c)"
+                  [class.disabled]="colDisabled(c)"
+                  [disabled]="colDisabled(c)"
+                  [title]="colDisabled(c) ? colDisabledReason(c) : typeLabel(c)"
+                  (click)="toggleCol(c)">
             <span class="col-badge" [ngClass]="c.type" [title]="typeLabel(c)">{{ glyph(c) }}</span>
             <span class="col-name">{{ c.name }}</span>
             <span class="col-check" *ngIf="isSelected(c)">
@@ -157,7 +161,9 @@
                 <button class="viz-card" *ngFor="let v of vizCards"
                         [class.active]="v.key === selectedViz"
                         [class.disabled]="!allowed(v.key)"
+                        [class.recommended]="v.key === recommendedViz()"
                         (click)="pickViz(v.key)">
+                  <span class="vc-badge" *ngIf="v.key === recommendedViz() && v.key !== selectedViz">Recommended</span>
                   <span class="vc-ic" [innerHTML]="v.iconSafe"></span>
                   <span class="vc-label">{{ v.label }}</span>
                   <span class="vc-req" [class.bad]="!allowed(v.key)">{{ v.requirement }}</span>

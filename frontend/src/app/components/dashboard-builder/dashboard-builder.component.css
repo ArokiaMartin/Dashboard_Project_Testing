@@ -134,6 +134,13 @@
     .vc-req { font-size: 10.5px; color: #94a3b8; line-height: 1.3; }
     .vc-req.bad { color: #f59e0b; }
 
+    .col-item.disabled, .col-item:disabled { opacity: 0.4; cursor: not-allowed; background: #fafbfc; border-color: #eef1f6; }
+    .col-item.disabled:hover, .col-item:disabled:hover { border-color: #eef1f6; background: #fafbfc; }
+
+    .viz-card { position: relative; }
+    .viz-card.recommended { border-color: #2563eb; }
+    .vc-badge { position: absolute; top: -8px; left: 50%; transform: translateX(-50%); background: #2563eb; color: white; font-size: 9px; font-weight: 700; letter-spacing: 0.3px; padding: 2px 8px; border-radius: 10px; text-transform: uppercase; white-space: nowrap; }
+
     .preview { border: 1px solid #eef1f6; border-radius: 10px; background: #fbfcfe; min-height: 300px; display: flex; align-items: center; justify-content: center; padding: 18px; }
     .ph { text-align: center; color: #94a3b8; }
     .ph svg { margin-bottom: 12px; }

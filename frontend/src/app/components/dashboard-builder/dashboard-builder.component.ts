@@ -434,6 +434,23 @@ export class DashboardBuilderComponent implements OnInit {
   isSelected(c: Column): boolean { return this.selectedCols.some(s => s.name === c.name); }
   hasColumns(): boolean { return this.selectedCols.length > 0; }
   allowed(key: string): boolean { return this.compat.isAllowed(key, this.selectedCols); }
+
+  /** A column is disabled when it can't be added to the current selection (already-selected columns stay
+   *  clickable so they can be removed). Once a chart is chosen, columns that would break it grey out. */
+  colDisabled(c: Column): boolean {
+    if (this.isSelected(c)) return false;
+    return !this.compat.canAddColumn(this.selectedViz, this.selectedCols, c, this.compat.columns);
+  }
+
+  /** Tooltip explaining why a column is disabled. */
+  colDisabledReason(c: Column): string {
+    if (this.selectedCols.length >= 4) return 'You can select up to 4 columns';
+    const card = this.vizCards.find(v => v.key === this.selectedViz);
+    return card ? `Doesn't fit ${card.label}` : '';
+  }
+
+  /** The recommended ("suggested") chart for the current columns, or null. */
+  recommendedViz(): string | null { return this.compat.recommend(this.selectedCols); }
   isChartViz(key: string | null): boolean { return !!key && key !== 'kpi' && key !== 'table'; }
 
   signatureText(): string {
@@ -446,6 +463,7 @@ export class DashboardBuilderComponent implements OnInit {
   }
 
   toggleCol(c: Column) {
+    if (!this.isSelected(c) && this.colDisabled(c)) return;   // can't add a disabled column
     if (this.isSelected(c)) {
       this.selectedCols = this.selectedCols.filter(s => s.name !== c.name);
     } else if (this.selectedCols.length < 4) {
