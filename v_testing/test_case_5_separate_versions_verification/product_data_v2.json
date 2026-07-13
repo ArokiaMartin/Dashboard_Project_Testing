@@ -1,0 +1,11 @@
+[
+  {"product_id": 1001, "product_name": "Laptop Pro 15", "category": "Electronics", "unit_price": 1199.99, "stock_quantity": 35, "last_updated": "2026-02-20"},
+  {"product_id": 1002, "product_name": "USB-C Cable", "category": "Accessories", "unit_price": 14.99, "stock_quantity": 180, "last_updated": "2026-02-20"},
+  {"product_id": 1003, "product_name": "Wireless Mouse", "category": "Electronics", "unit_price": 44.99, "stock_quantity": 95, "last_updated": "2026-02-20"},
+  {"product_id": 1004, "product_name": "Monitor 4K", "category": "Electronics", "unit_price": 549.99, "stock_quantity": 22, "last_updated": "2026-02-20"},
+  {"product_id": 1005, "product_name": "Keyboard Mechanical", "category": "Electronics", "unit_price": 149.99, "stock_quantity": 60, "last_updated": "2026-02-20"},
+  {"product_id": 1006, "product_name": "HDMI Cable", "category": "Accessories", "unit_price": 11.99, "stock_quantity": 280, "last_updated": "2026-02-20"},
+  {"product_id": 1007, "product_name": "Phone Stand", "category": "Accessories", "unit_price": 18.99, "stock_quantity": 175, "last_updated": "2026-02-20"},
+  {"product_id": 1008, "product_name": "USB Hub 4-Port", "category": "Accessories", "unit_price": 29.99, "stock_quantity": 100, "last_updated": "2026-02-20"},
+  {"product_id": 1009, "product_name": "Laptop Stand Adjustable", "category": "Accessories", "unit_price": 59.99, "stock_quantity": 50, "last_updated": "2026-02-20"}
+]

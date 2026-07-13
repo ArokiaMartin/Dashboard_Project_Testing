@@ -1,0 +1,291 @@
+=============================================================================
+TEST CASE 5: SEPARATE VERSIONS VERIFICATION - RESULTS TEMPLATE
+=============================================================================
+
+Date: ________________________
+Tester: ______________________
+Build Version: _______________
+
+=============================================================================
+STEP 1: SCHEMA REGISTRATION
+=============================================================================
+
+Command:
+POST /api/schema/register
+Body: product_schema.json
+
+Response Status: _____________ (Expected: 201 or 200)
+Schema ID Returned: __________ (Expected: product_schema_005)
+
+Database Verification:
+Query: SELECT id, schema_name FROM schemas WHERE schema_name = 'product_catalog'
+Result: ________________ rows found
+Schema Name: _________________ (Expected: product_catalog)
+
+✓ PASSED / ✗ FAILED
+
+=============================================================================
+STEP 2: UPLOAD VERSION 1
+=============================================================================
+
+Command:
+POST /api/schema/ingest
+File: product_data_v1.json
+Records: 7 products
+
+Response Status: _____________ (Expected: 200)
+Rows Inserted: ______________ (Expected: 7)
+Table Name: _________________ (Expected: product_catalog_v1)
+
+Database Verification:
+
+1. Table Created:
+   Query: SELECT table_name FROM information_schema.tables WHERE table_name LIKE 'product_catalog_v%'
+   Result: ________________
+   Expected: product_catalog_v1 ✓
+
+2. Row Count:
+   Query: SELECT COUNT(*) FROM product_catalog_v1
+   Result: ________________ (Expected: 7)
+
+3. Version Registered:
+   Query: SELECT version_number, row_count, table_name FROM data_versions WHERE schema_id = 'product_schema_005'
+   Result:
+   version_number | row_count | table_name
+   ______________ | _________ | _____________________
+   (Expected: 1 | 7 | product_catalog_v1)
+
+4. Checksum Recorded:
+   Query: SELECT version_number, checksum FROM data_versions WHERE schema_id = 'product_schema_005'
+   Checksum v1: _________________________ (Record this for comparison)
+
+Sample Data Verification:
+   Query: SELECT product_id, product_name, unit_price FROM product_catalog_v1 WHERE product_id = 1001
+   Product ID: __________ (Expected: 1001)
+   Name: ________________ (Expected: Laptop Pro 15)
+   Price: ______________ (Expected: 1299.99)
+
+✓ PASSED / ✗ FAILED
+
+=============================================================================
+STEP 3: UPLOAD VERSION 2
+=============================================================================
+
+Command:
+POST /api/schema/ingest
+File: product_data_v2.json
+Records: 9 products
+
+Response Status: _____________ (Expected: 200)
+Rows Inserted: ______________ (Expected: 9)
+Table Name: _________________ (Expected: product_catalog_v2)
+
+Database Verification:
+
+1. Both Tables Exist:
+   Query: SELECT table_name FROM information_schema.tables WHERE table_name LIKE 'product_catalog_v%' ORDER BY table_name
+   Tables Found:
+   ________________________
+   ________________________
+   (Expected: product_catalog_v1, product_catalog_v2)
+
+2. Data Isolation:
+   Query: SELECT COUNT(*) FROM product_catalog_v1
+   Result: ________________ (Expected: 7 - unchanged)
+
+   Query: SELECT COUNT(*) FROM product_catalog_v2
+   Result: ________________ (Expected: 9)
+
+3. Version 2 Registered:
+   Query: SELECT version_number, row_count, table_name FROM data_versions WHERE schema_id = 'product_schema_005' ORDER BY version_number
+   Result:
+   version_number | row_count | table_name
+   ______________ | _________ | _____________________
+   ______________ | _________ | _____________________
+   (Expected: 1 | 7 | product_catalog_v1
+              2 | 9 | product_catalog_v2)
+
+4. Checksum v2 Different:
+   Query: SELECT version_number, checksum FROM data_versions WHERE schema_id = 'product_schema_005' ORDER BY version_number
+   Checksum v1: _________________________ (From Step 2)
+   Checksum v2: _________________________ (Should be DIFFERENT)
+   Are they different? _________________ (Expected: YES ✓)
+
+5. Price Changes Verified:
+   Query: SELECT product_id, unit_price FROM product_catalog_v1 WHERE product_id = 1001
+   v1 Price: ______________ (Expected: 1299.99)
+
+   Query: SELECT product_id, unit_price FROM product_catalog_v2 WHERE product_id = 1001
+   v2 Price: ______________ (Expected: 1199.99)
+   Price reduced in v2? _____________ (Expected: YES ✓)
+
+✓ PASSED / ✗ FAILED
+
+=============================================================================
+STEP 4: UPLOAD VERSION 3
+=============================================================================
+
+Command:
+POST /api/schema/ingest
+File: product_data_v3.json
+Records: 6 products
+
+Response Status: _____________ (Expected: 200)
+Rows Inserted: ______________ (Expected: 6)
+Table Name: _________________ (Expected: product_catalog_v3)
+
+Database Verification:
+
+1. All Three Tables Exist:
+   Query: SELECT table_name FROM information_schema.tables WHERE table_name LIKE 'product_catalog_v%' ORDER BY table_name
+   Tables Found:
+   ________________________
+   ________________________
+   ________________________
+   (Expected: product_catalog_v1, product_catalog_v2, product_catalog_v3)
+
+2. Row Counts Correct:
+   product_catalog_v1: ______________ (Expected: 7)
+   product_catalog_v2: ______________ (Expected: 9)
+   product_catalog_v3: ______________ (Expected: 6)
+
+3. All Versions Registered:
+   Query: SELECT version_number, row_count, table_name FROM data_versions WHERE schema_id = 'product_schema_005' ORDER BY version_number
+   Version | Rows | Table
+   _______ | ____ | _____________________
+   _______ | ____ | _____________________
+   _______ | ____ | _____________________
+   (Expected: 1|7|v1, 2|9|v2, 3|6|v3)
+
+4. All Checksums Different:
+   Checksum v1: _________________________
+   Checksum v2: _________________________
+   Checksum v3: _________________________
+   All different? _________________________ (Expected: YES ✓)
+
+5. Price Comparison:
+   Product 1001 in v3:
+   Query: SELECT product_id, unit_price FROM product_catalog_v3 WHERE product_id = 1001
+   v3 Price: ______________ (Expected: 1349.99)
+
+   Price progression:
+   v1: 1299.99 → v2: 1199.99 → v3: 1349.99 ✓
+
+✓ PASSED / ✗ FAILED
+
+=============================================================================
+STEP 5A: API ENDPOINT TEST
+=============================================================================
+
+Command:
+GET /api/data/versions/schema/product_schema_005
+
+Response Status: _____________ (Expected: 200)
+Number of Versions: _____________ (Expected: 3)
+
+Response Body:
+[
+  {
+    "versionNumber": __________ (Expected: 1),
+    "checksum": "__________________________" (Should match DB),
+    "rowCount": __________ (Expected: 7),
+    "tableName": "____________________" (Expected: product_catalog_v1)
+  },
+  {
+    "versionNumber": __________ (Expected: 2),
+    "checksum": "__________________________" (Should be different),
+    "rowCount": __________ (Expected: 9),
+    "tableName": "____________________" (Expected: product_catalog_v2)
+  },
+  {
+    "versionNumber": __________ (Expected: 3),
+    "checksum": "__________________________" (Should be different),
+    "rowCount": __________ (Expected: 6),
+    "tableName": "____________________" (Expected: product_catalog_v3)
+  }
+]
+
+All checksums different? _________________ (Expected: YES ✓)
+All row counts correct? _________________ (Expected: YES ✓)
+All table names correct? _________________ (Expected: YES ✓)
+
+✓ PASSED / ✗ FAILED
+
+=============================================================================
+STEP 6: DASHBOARD VERIFICATION
+=============================================================================
+
+Navigation: http://localhost:4200/dashboard-builder
+
+6A. Schema Selection:
+    Can select "product_catalog"? _________________ (Expected: YES ✓)
+
+6B. Version Dropdown Display:
+    Dropdown shows:
+    ☐ Version 1 (7 rows)
+    ☐ Version 2 (9 rows)
+    ☐ Version 3 (6 rows)
+
+    All versions visible? _________________ (Expected: YES ✓)
+
+6C. Version 1 Display:
+    Click: Version 1
+    Data loads? _________________ (Expected: YES ✓)
+    Number of records shown: __________ (Expected: 7)
+    Sample: Laptop Pro 15 price: ______________ (Expected: 1299.99)
+
+    ✓ Correct / ✗ Incorrect
+
+6D. Version 2 Display:
+    Click: Version 2
+    Data loads? _________________ (Expected: YES ✓)
+    Number of records shown: __________ (Expected: 9)
+    Sample: Laptop Pro 15 price: ______________ (Expected: 1199.99)
+    Sample: USB Hub 4-Port visible? _________________ (Expected: YES ✓)
+
+    ✓ Correct / ✗ Incorrect
+
+6E. Version 3 Display:
+    Click: Version 3
+    Data loads? _________________ (Expected: YES ✓)
+    Number of records shown: __________ (Expected: 6)
+    Sample: Laptop Pro 15 price: ______________ (Expected: 1349.99)
+    Sample: Webcam HD 1080p visible? _________________ (Expected: YES ✓)
+
+    ✓ Correct / ✗ Incorrect
+
+✓ PASSED / ✗ FAILED
+
+=============================================================================
+SUMMARY
+=============================================================================
+
+Overall Test Result:
+
+Step 1 (Schema Registration): ✓ PASS / ✗ FAIL
+Step 2 (Version 1 Upload): ✓ PASS / ✗ FAIL
+Step 3 (Version 2 Upload): ✓ PASS / ✗ FAIL
+Step 4 (Version 3 Upload): ✓ PASS / ✗ FAIL
+Step 5A (API Endpoint): ✓ PASS / ✗ FAIL
+Step 6 (Dashboard): ✓ PASS / ✗ FAIL
+
+FINAL RESULT: ✓ PASSED / ✗ FAILED
+
+Key Observations:
+_____________________________________________________________________________
+_____________________________________________________________________________
+_____________________________________________________________________________
+
+Issues Found (if any):
+_____________________________________________________________________________
+_____________________________________________________________________________
+_____________________________________________________________________________
+
+Notes:
+_____________________________________________________________________________
+_____________________________________________________________________________
+_____________________________________________________________________________
+
+Signature: _________________________ Date: ______________
+
+=============================================================================

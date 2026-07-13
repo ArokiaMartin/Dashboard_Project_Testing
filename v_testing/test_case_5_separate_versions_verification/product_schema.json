@@ -1,0 +1,44 @@
+{
+  "id": "product_schema_005",
+  "schemaName": "product_catalog",
+  "description": "Product catalog schema for testing separate version table creation",
+  "fields": [
+    {
+      "fieldName": "product_id",
+      "fieldType": "INTEGER",
+      "isRequired": true,
+      "isDimension": true,
+      "isPrimaryKey": true
+    },
+    {
+      "fieldName": "product_name",
+      "fieldType": "STRING",
+      "isRequired": true,
+      "isDimension": true
+    },
+    {
+      "fieldName": "category",
+      "fieldType": "STRING",
+      "isRequired": true,
+      "isDimension": true
+    },
+    {
+      "fieldName": "unit_price",
+      "fieldType": "NUMERIC",
+      "isRequired": true,
+      "isMeasure": true
+    },
+    {
+      "fieldName": "stock_quantity",
+      "fieldType": "INTEGER",
+      "isRequired": false,
+      "isMeasure": true
+    },
+    {
+      "fieldName": "last_updated",
+      "fieldType": "DATE",
+      "isRequired": false,
+      "isDimension": false
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "id": "analytics_schema_004",
+  "schemaName": "sales_analytics",
+  "description": "Sales analytics schema for version comparison testing",
+  "fields": [
+    {"fieldName": "month", "fieldType": "DATE", "isRequired": true, "isDimension": true},
+    {"fieldName": "region", "fieldType": "STRING", "isRequired": true, "isDimension": true},
+    {"fieldName": "sales_amount", "fieldType": "NUMERIC", "isRequired": true, "isMeasure": true},
+    {"fieldName": "quantity", "fieldType": "INTEGER", "isRequired": false, "isMeasure": true},
+    {"fieldName": "profit_margin", "fieldType": "NUMERIC", "isRequired": false, "isMeasure": true}
+  ]
+}

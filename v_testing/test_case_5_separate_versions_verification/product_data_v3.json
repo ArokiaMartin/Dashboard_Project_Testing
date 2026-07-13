@@ -1,0 +1,8 @@
+[
+  {"product_id": 1001, "product_name": "Laptop Pro 15", "category": "Electronics", "unit_price": 1349.99, "stock_quantity": 40, "last_updated": "2026-03-25"},
+  {"product_id": 1002, "product_name": "USB-C Cable", "category": "Accessories", "unit_price": 16.99, "stock_quantity": 300, "last_updated": "2026-03-25"},
+  {"product_id": 1003, "product_name": "Wireless Mouse", "category": "Electronics", "unit_price": 54.99, "stock_quantity": 110, "last_updated": "2026-03-25"},
+  {"product_id": 1004, "product_name": "Monitor 4K", "category": "Electronics", "unit_price": 649.99, "stock_quantity": 28, "last_updated": "2026-03-25"},
+  {"product_id": 1005, "product_name": "Keyboard Mechanical", "category": "Electronics", "unit_price": 179.99, "stock_quantity": 80, "last_updated": "2026-03-25"},
+  {"product_id": 1010, "product_name": "Webcam HD 1080p", "category": "Electronics", "unit_price": 89.99, "stock_quantity": 65, "last_updated": "2026-03-25"}
+]

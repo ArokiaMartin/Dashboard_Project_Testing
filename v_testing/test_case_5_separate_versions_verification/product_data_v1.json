@@ -1,0 +1,9 @@
+[
+  {"product_id": 1001, "product_name": "Laptop Pro 15", "category": "Electronics", "unit_price": 1299.99, "stock_quantity": 45, "last_updated": "2026-01-15"},
+  {"product_id": 1002, "product_name": "USB-C Cable", "category": "Accessories", "unit_price": 15.99, "stock_quantity": 250, "last_updated": "2026-01-15"},
+  {"product_id": 1003, "product_name": "Wireless Mouse", "category": "Electronics", "unit_price": 49.99, "stock_quantity": 120, "last_updated": "2026-01-15"},
+  {"product_id": 1004, "product_name": "Monitor 4K", "category": "Electronics", "unit_price": 599.99, "stock_quantity": 30, "last_updated": "2026-01-15"},
+  {"product_id": 1005, "product_name": "Keyboard Mechanical", "category": "Electronics", "unit_price": 159.99, "stock_quantity": 75, "last_updated": "2026-01-15"},
+  {"product_id": 1006, "product_name": "HDMI Cable", "category": "Accessories", "unit_price": 12.99, "stock_quantity": 300, "last_updated": "2026-01-15"},
+  {"product_id": 1007, "product_name": "Phone Stand", "category": "Accessories", "unit_price": 19.99, "stock_quantity": 200, "last_updated": "2026-01-15"}
+]
