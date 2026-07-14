@@ -14,7 +14,7 @@ Steps:
 Use these commands in PowerShell:
 ```powershell
 cd backend
-$env:DB_PASSWORD="Password@2006$$"
+$env:DB_PASSWORD="YOUR_DB_PASSWORD"
 .\mvnw.cmd spring-boot:run
 ```
 
