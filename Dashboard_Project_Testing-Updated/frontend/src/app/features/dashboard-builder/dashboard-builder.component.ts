@@ -598,14 +598,41 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
       }
     }
 
-    const restored = widgets
+    // Build base widget specs (no chart data) from the widget descriptions and commit them to
+    // the canvas immediately so the grid layout is visible before any data arrives.
+    const baseWidgets = widgets
       .map((widget, index) => this.restoreWidget(index, widget))
       .filter((w): w is WidgetSpec => w !== null);
 
-    this.committedWidgets = restored;
-    this.widgetSeq = restored.reduce((max, w) => Math.max(max, w.id), 0);
+    this.committedWidgets = baseWidgets;
+    this.widgetSeq = baseWidgets.reduce((max, w) => Math.max(max, w.id), 0);
     this.syncDraft();
     this.refreshPreview();
+
+    // Fire a separate execute-query call for each widget in parallel.
+    // When each response arrives, update only that widget in the canvas in place.
+    widgets.forEach((widget, index) => {
+      const dbConfig = (widget.database_config_json ?? {}) as Record<string, unknown>;
+      if (!dbConfig['dataset']) return;
+      const base = baseWidgets[index];
+      if (!base) return;
+
+      this.backend.executeQuery(dbConfig).then((response) => {
+        const rows = response.data ?? [];
+        const hydrated = this.hydrateWidgetFromRows(base, dbConfig, rows);
+        const idx = this.committedWidgets.findIndex((w) => w.id === base.id);
+        if (idx !== -1) {
+          this.committedWidgets = [
+            ...this.committedWidgets.slice(0, idx),
+            hydrated,
+            ...this.committedWidgets.slice(idx + 1)
+          ];
+          this.syncDraft();
+        }
+      }).catch(() => {
+        // Widget stays as a base skeleton if its query fails silently.
+      });
+    });
   }
 
   private async refreshServerAgg(): Promise<void> {
