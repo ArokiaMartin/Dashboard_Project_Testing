@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.example.dashboard_backend.controller.QueryController;
+import com.example.dashboard_backend.query.QueryConfigNormalizer;
 import jakarta.annotation.PostConstruct;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -21,10 +22,13 @@ public class DashboardService {
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final QueryConfigNormalizer configNormalizer;
 
-    public DashboardService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
+    public DashboardService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper,
+                            QueryConfigNormalizer configNormalizer) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
+        this.configNormalizer = configNormalizer;
     }
 
     @PostConstruct
@@ -377,23 +381,26 @@ public class DashboardService {
     }
 
     /**
-     * Hydrates widget data by executing SQL that is generated from the widget's database config.
-     * No widget query SQL is hardcoded here; all query text comes from QueryController.generateSql.
+     * Hydrates widget data by executing SQL generated from the widget's database config.
+     *
+     * <p>The raw config is run through the shared {@link QueryConfigNormalizer} — the SAME normalization
+     * the live {@code /execute-query} path uses — so nested/joined datasets get their join-aware
+     * {@code datasetFromSql} derived table and the hydration query returns real rows instead of failing
+     * on child-only columns. No widget query SQL is hardcoded here; all query text comes from
+     * {@link QueryController#generateSql}.
      */
     private void attachHydratedData(Map<String, Object> target, Object dbConfig) {
-        if (!(dbConfig instanceof Map<?, ?> configMap)) {
+        if (!(dbConfig instanceof Map<?, ?>)) {
             return;
         }
 
         try {
-            Map<String, Object> normalizedConfig = normalizeQueryConfig(configMap);
-            JsonNode configNode = objectMapper.valueToTree(normalizedConfig);
-            QueryController.GeneratedQuery generated = QueryController.generateSql(configNode);
+            QueryController.GeneratedQuery generated = buildWidgetQuery(dbConfig);
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                     generated.sql(),
                     generated.params().toArray()
             );
-            target.put("generated_sql", generated.sql());
+            target.put("generated_sql", QueryController.renderPreview(generated));
             target.put("hydrated_data", rows);
         } catch (Exception ignored) {
             // Keep dashboard retrieval resilient even if one widget's query config is invalid.
@@ -402,124 +409,35 @@ public class DashboardService {
         }
     }
 
-    private Map<String, Object> normalizeQueryConfig(Map<?, ?> rawConfig) {
-        Map<String, Object> config = new LinkedHashMap<>();
-        for (Map.Entry<?, ?> entry : rawConfig.entrySet()) {
-            config.put(String.valueOf(entry.getKey()), entry.getValue());
-        }
-
-        String datasetToken = asText(config.get("dataset"));
-        UUID uploadId = null;
-        if (datasetToken != null && !datasetToken.isBlank()) {
-            try {
-                uploadId = UUID.fromString(datasetToken);
-                List<Map<String, Object>> datasetRows = jdbcTemplate.queryForList(
-                        "SELECT table_name FROM data_uploads WHERE id = ?",
-                        uploadId
-                );
-                if (!datasetRows.isEmpty()) {
-                    config.put("dataset", String.valueOf(datasetRows.get(0).get("table_name")));
-                }
-            } catch (IllegalArgumentException ignored) {
-                // Stored dataset token is a table-name path; keep as-is.
-            }
-        }
-
-        if (uploadId != null) {
-            List<Map<String, Object>> fieldRows = jdbcTemplate.queryForList(
-                    "SELECT field_name, normalized_field_name FROM field_metadata WHERE upload_id = ?",
-                    uploadId
-            );
-            Map<String, String> fieldMap = new LinkedHashMap<>();
-            for (Map<String, Object> row : fieldRows) {
-                String fieldName = String.valueOf(row.get("field_name"));
-                String normalizedName = String.valueOf(row.get("normalized_field_name"));
-                fieldMap.put(fieldName, normalizedName);
-                fieldMap.put(normalizedName, normalizedName);
-            }
-            remapConfigFieldNames(config, fieldMap);
-        }
-
-        return config;
-    }
-
-    @SuppressWarnings("unchecked")
-    private void remapConfigFieldNames(Map<String, Object> config, Map<String, String> fieldMap) {
-        Object dimensionsObj = config.get("dimensions");
-        if (dimensionsObj instanceof List<?> dimensions) {
-            List<Object> updated = new ArrayList<>();
-            for (Object d : dimensions) {
-                updated.add(resolveField(fieldMap, asText(d)));
-            }
-            config.put("dimensions", updated);
-        }
-
-        Object measuresObj = config.get("measures");
-        if (measuresObj instanceof List<?> measures) {
-            for (Object m : measures) {
-                if (m instanceof Map<?, ?> map) {
-                    Map<String, Object> measure = (Map<String, Object>) map;
-                    measure.computeIfPresent("field", (k, v) -> resolveField(fieldMap, asText(v)));
-                }
-            }
-        }
-
-        Object filtersObj = config.get("filters");
-        if (filtersObj instanceof Map<?, ?> filtersMap) {
-            Object rulesObj = ((Map<?, ?>) filtersMap).get("rules");
-            if (rulesObj instanceof List<?> rules) {
-                for (Object r : rules) {
-                    if (r instanceof Map<?, ?> map) {
-                        Map<String, Object> rule = (Map<String, Object>) map;
-                        rule.computeIfPresent("field", (k, v) -> resolveField(fieldMap, asText(v)));
-                    }
-                }
-            }
-        }
-
-        Object havingObj = config.get("having");
-        if (havingObj instanceof List<?> having) {
-            for (Object h : having) {
-                if (h instanceof Map<?, ?> map) {
-                    Map<String, Object> rule = (Map<String, Object>) map;
-                    rule.computeIfPresent("measure", (k, v) -> resolveField(fieldMap, asText(v)));
-                }
-            }
-        }
-
-        Object sortingObj = config.get("sorting");
-        if (sortingObj instanceof List<?> sorting) {
-            for (Object s : sorting) {
-                if (s instanceof Map<?, ?> map) {
-                    Map<String, Object> sort = (Map<String, Object>) map;
-                    sort.computeIfPresent("field", (k, v) -> resolveField(fieldMap, asText(v)));
-                }
-            }
-        }
-    }
-
-    private String resolveField(Map<String, String> fieldMap, String value) {
-        if (value == null || value.isBlank()) {
-            return value;
-        }
-        return fieldMap.getOrDefault(value, value);
-    }
-
+    /**
+     * Builds the persisted {@code generated_sql} for a widget: a self-contained, join-aware SQL string
+     * (bind values inlined via {@link QueryController#renderPreview}) so the value stored in
+     * {@code dashboard_widgets.generated_sql} is a valid, runnable query for nested/joined datasets too.
+     * Returns an empty string when the config is missing or invalid.
+     */
     private String generateSqlForWidget(Object dbConfigObj) {
         if (dbConfigObj == null) {
             return "";
         }
 
         try {
-            Map<String, Object> normalizedConfig = normalizeQueryConfig(
-                dbConfigObj instanceof Map<?, ?> map ? map : new LinkedHashMap<>()
-            );
-            JsonNode configNode = objectMapper.valueToTree(normalizedConfig);
-            QueryController.GeneratedQuery generated = QueryController.generateSql(configNode);
-            return generated.sql();
+            return QueryController.renderPreview(buildWidgetQuery(dbConfigObj));
         } catch (Exception e) {
             // If SQL generation fails, store empty string
             return "";
         }
+    }
+
+    /**
+     * Turns a widget's stored {@code database_config_json} into an execution-ready {@link
+     * QueryController.GeneratedQuery} using the shared normalizer (dataset resolution, field remap and
+     * the join-aware derived table) followed by the pure SQL builder.
+     */
+    private QueryController.GeneratedQuery buildWidgetQuery(Object dbConfigObj) {
+        JsonNode rawConfig = objectMapper.valueToTree(
+                dbConfigObj instanceof Map<?, ?> map ? map : new LinkedHashMap<>()
+        );
+        JsonNode normalizedConfig = configNormalizer.normalize(rawConfig);
+        return QueryController.generateSql(normalizedConfig);
     }
 }

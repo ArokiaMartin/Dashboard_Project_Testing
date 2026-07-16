@@ -82,6 +82,21 @@ class QueryControllerTest {
     }
 
     @Test
+    void isNullFilterEmitsNoBindParameter() throws Exception {
+        GeneratedQuery query = generate("""
+            {
+              "dataset": "orders",
+              "filters": {"rules": [
+                {"field": "segment", "operator": "IS NULL"}
+              ]}
+            }
+            """);
+
+        assertTrue(query.sql().contains("\"segment\" IS NULL"), "null-bucket filter should render IS NULL");
+        assertTrue(query.params().isEmpty(), "IS NULL must not bind a parameter");
+    }
+
+    @Test
     void appliesPaginationAsBoundLimitAndOffset() throws Exception {
         GeneratedQuery query = generate("""
             {"dataset": "orders", "pagination": {"top": 50, "offset": 10}}

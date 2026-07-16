@@ -1,7 +1,7 @@
 import { Component, Input, Output, EventEmitter, ViewChild, ElementRef, AfterViewInit, OnDestroy, OnChanges, SimpleChanges, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Chart, registerables } from 'chart.js';
-import { BackendIntegrationService } from '@core/services/backend-integration.service';
+import { BackendIntegrationService, DrilldownFilter } from '@core/services/backend-integration.service';
 
 Chart.register(...registerables);
 
@@ -231,7 +231,41 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
   drillLoading = false;
   drillError = '';
 
+  // ---- automatic (backend-driven) drill state, charts only ----
+  // In auto mode the next dimension is NOT read from a pre-configured drillPath; the backend picks it
+  // by cardinality (POST /api/drilldown) and tells us whether a further drill is meaningful. `drillStack`
+  // is still the breadcrumb: each entry is {field = the dimension shown at that level, value = clicked}.
+  private autoCurrentDim = '';           // dimension currently displayed
+  private autoNextDim: string | null = null;  // backend-picked next dimension (null = nothing to drill into)
+  private autoEnabled = false;           // backend verdict: is a further drill meaningful?
+
   constructor(private backend: BackendIntegrationService) {}
+
+  /** Auto mode applies to category charts that carry a measure — the target of the new drill-down. */
+  private autoMode(): boolean {
+    return !!this.spec.chartType && this.spec.chartType !== 'scatter' && this.measureDefs().length > 0;
+  }
+
+  /** The dataset token (upload id) the widget queries. */
+  private datasetToken(): string {
+    const db = this.spec.databaseConfig as any;
+    return db?.dataset ? String(db.dataset) : '';
+  }
+
+  /** The level-0 dimension a chart is grouped by (its first configured dimension). */
+  private baseChartDim(): string {
+    const db = this.spec.databaseConfig as any;
+    return Array.isArray(db?.dimensions) && db.dimensions.length ? String(db.dimensions[0]) : '';
+  }
+
+  /** First measure as the backend expects it: {field, aggregation, alias}. */
+  private primaryMeasure(): { field: string; aggregation: string; alias: string } | null {
+    const db = this.spec.databaseConfig as any;
+    const raw = Array.isArray(db?.measures) && db.measures.length ? db.measures[0] : null;
+    if (!raw || !raw.field) return null;
+    const agg = String(raw.aggregation ?? this.spec.editState?.aggregation ?? 'SUM').toUpperCase();
+    return { field: String(raw.field), aggregation: agg, alias: String(raw.alias ?? raw.field) };
+  }
 
   ngAfterViewInit() { setTimeout(() => this.initRender(), 0); }
 
@@ -250,7 +284,11 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
    *  KPIs and tables keep their hydrated base view (the number / raw rows) until the user drills. */
   private initRender() {
     this.render();
-    if (this.spec.chartType && this.isDrillable() && !this.drillLabels) {
+    if (this.autoMode()) {
+      // Backend-driven: keep the widget's own hydrated base chart, but ask the backend whether — and into
+      // which dimension — a click can drill (analysis only; data is replaced only once the user drills).
+      if (!this.drillLabels) this.loadAuto([], this.baseChartDim(), false);
+    } else if (this.spec.chartType && this.isDrillable() && !this.drillLabels) {
       this.loadLevel([]);
     }
   }
@@ -289,6 +327,9 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
   /** A widget is drillable when it has a measure to aggregate and at least one dimension below its base. */
   isDrillable(): boolean {
     if (this.measureDefs().length === 0) return false;
+    // Auto mode: any category chart with a measure can attempt a drill; whether a click actually descends
+    // is decided per level by the backend (see canDrillDown()).
+    if (this.autoMode()) return true;
     if (this.spec.viz === 'kpi') return this.hierarchy().length >= 1;   // total → at least one drill dim
     if (this.spec.viz === 'table') return this.hierarchy().length > 1;  // base column + at least one drill dim
     return !!this.spec.chartType && this.hierarchy().length > 1;
@@ -299,6 +340,7 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
 
   /** Whether the breadcrumb root can collapse the view back to its base. */
   canReset(): boolean {
+    if (this.autoMode()) return this.drillStack.length > 0;
     if (this.spec.viz === 'kpi' || this.spec.viz === 'table') return this.drillActive() || this.drillStack.length > 0;
     return this.drillStack.length > 0;
   }
@@ -306,6 +348,8 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
   /** True while a click on the current view would drill one level deeper. */
   canDrillDown(): boolean {
     if (!this.isDrillable()) return false;
+    // Auto mode: the backend decides per level whether a meaningful next dimension exists.
+    if (this.autoMode()) return this.autoEnabled && !!this.autoNextDim && !this.drillLoading;
     if (this.spec.viz === 'kpi' && !this.drillActive()) return true;   // the number always opens its first breakdown
     return this.drillStack.length < this.hierarchy().length - 1;
   }
@@ -314,11 +358,13 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
     return field ? field.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : field;
   }
   baseDimLabel(): string {
+    if (this.autoMode()) return this.prettyField(this.baseChartDim() || 'All');
     if (this.spec.viz === 'kpi') return this.spec.kpiLabel ? `Total ${this.prettyField(this.spec.kpiLabel)}` : 'Total';
     return this.prettyField(this.hierarchy()[0] ?? 'All');
   }
   /** The next-finer dimension a click would break the current level down into. */
   currentDimLabel(): string {
+    if (this.autoMode()) return this.prettyField(this.autoNextDim ?? '');
     if (this.spec.viz === 'kpi' && !this.drillActive()) return this.prettyField(this.hierarchy()[0] ?? '');
     return this.prettyField(this.hierarchy()[this.drillStack.length + 1] ?? '');
   }
@@ -347,6 +393,14 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
   /** Push the clicked value onto the stack and load the next-finer level. */
   private drillInto(value: string): void {
     if (!this.canDrillDown() || this.drillLoading) return;
+    if (this.autoMode()) {
+      // The clicked bar's dimension is the one currently displayed; descend into the backend's next pick.
+      const nextDim = this.autoNextDim;
+      if (!nextDim) return;
+      const crumbs = [...this.drillStack, { field: this.autoCurrentDim, value }];
+      this.loadAuto(crumbs, nextDim, true);
+      return;
+    }
     const field = this.hierarchy()[this.drillStack.length];
     if (!field) return;
     this.loadLevel([...this.drillStack, { field, value }]);
@@ -390,12 +444,34 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
   /** Breadcrumb: jump back up to a given depth (0 = first crumb after the root). */
   drillUpTo(index: number): void {
     if (index >= this.drillStack.length) return;
+    if (this.autoMode()) {
+      // Crumb 0 collapses to the hydrated base view; deeper crumbs re-query that level (the dimension
+      // shown at level `index` is the field recorded on that crumb) with the filters accumulated above it.
+      if (index <= 0) { this.resetDrill(); return; }
+      const dimAtLevel = this.drillStack[index]?.field;
+      if (dimAtLevel === undefined) return;
+      this.loadAuto(this.drillStack.slice(0, index), dimAtLevel, true);
+      return;
+    }
     const target = this.drillStack.slice(0, index);
     target.length ? this.loadLevel(target) : this.resetDrill();
   }
 
   /** Breadcrumb root: return to the widget's base view (chart base grouping / KPI number / raw table). */
   resetDrill(): void {
+    if (this.autoMode()) {
+      // Collapse back to the widget's hydrated base chart and refresh the drill verdict (analysis only).
+      if (this.drillStack.length || this.drillActive()) {
+        this.drillStack = [];
+        this.renderedStack = [];
+        this.drillLabels = null;
+        this.drillDatasets = null;
+        this.drillError = '';
+        this.loadAuto([], this.baseChartDim(), false);
+        this.scheduleRender();
+      }
+      return;
+    }
     if (this.spec.viz === 'kpi' || this.spec.viz === 'table') {
       if (this.drillActive() || this.drillStack.length) this.collapseToBase();
       return;
@@ -421,10 +497,78 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
     this.drillDatasets = null;
     this.drillLoading = false;
     this.drillError = '';
+    this.autoCurrentDim = '';
+    this.autoNextDim = null;
+    this.autoEnabled = false;
   }
 
   /** Deferred render so a toggled *ngIf (e.g. a KPI's drill canvas) exists before we draw into it. */
   private scheduleRender(): void { setTimeout(() => this.render(), 0); }
+
+  /**
+   * Backend-driven drill (auto mode): query the current level via POST /api/drilldown and record the
+   * server's verdict on the next level (enabled + nextDimension). `crumbs` is the accumulated drill path
+   * (each: the dimension shown at that level + the clicked value); `currentDim` is the dimension to group
+   * this level by. When `renderData` is false we only refresh the verdict without repainting.
+   */
+  private loadAuto(crumbs: DrillStep[], currentDim: string, renderData: boolean): void {
+    if (this.drillLoading) return;
+    const measure = this.primaryMeasure();
+    if (!measure) return;
+
+    this.drillStack = crumbs;          // optimistic breadcrumb; reverted on failure
+    this.drillLoading = true;
+    this.drillError = '';
+
+    const filters: DrilldownFilter[] = crumbs.map((c) => ({ field: c.field, value: c.value }));
+    // Carry the widget's own configured filters (category IN, measure ranges, …) so every drill level
+    // shows the same data the base widget would — drill-click filters are layered on top.
+    const db = this.spec.databaseConfig as any;
+    const baseFilters = db?.filters && Array.isArray(db.filters.rules) && db.filters.rules.length
+      ? { condition: db.filters.condition ?? 'AND', rules: db.filters.rules }
+      : undefined;
+    this.backend.drilldown({
+      dataset: this.datasetToken(),
+      chartType: this.spec.chartType ?? undefined,
+      currentDimension: currentDim || null,
+      measure,
+      filters,
+      baseFilters,
+      topN: 50,
+    })
+      .then((res) => {
+        this.autoCurrentDim = currentDim;
+        this.autoNextDim = res.drilldown?.nextDimension ?? null;
+        this.autoEnabled = !!res.drilldown?.enabled;
+        if (renderData) {
+          const rows = res.data ?? [];
+          // The backend aggregates the single primary measure, so render exactly that one series and read
+          // the dimension from the other column.
+          const aliases = new Set([measure.alias]);
+          this.drillLabels = rows.map((r) => this.dimValueOf(r, aliases));
+          this.drillDatasets = [{
+            label: measure.field,
+            data: rows.map((r) => Number(this.rowValue(r, measure.alias)) || 0),
+          }];
+          this.renderedStack = crumbs;
+          this.scheduleRender();
+        }
+        this.drillLoading = false;
+      })
+      .catch(() => {
+        this.drillLoading = false;
+        this.drillError = 'Could not load drill-down data.';
+        this.drillStack = this.renderedStack;   // keep breadcrumb in sync with what's on screen
+      });
+  }
+
+  /** Reads the dimension value from a drilldown row: the single column that isn't a measure alias. */
+  private dimValueOf(row: Record<string, unknown>, aliases: Set<string>): string {
+    for (const key of Object.keys(row)) {
+      if (!aliases.has(key)) return String(row[key] ?? '');
+    }
+    return '';
+  }
 
   /**
    * Re-query one drill level through the SAME execute-query path the builder uses (no new endpoint or

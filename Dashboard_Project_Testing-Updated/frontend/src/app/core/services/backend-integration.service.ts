@@ -37,6 +37,51 @@ export interface QueryExecuteResponse {
   data: Record<string, unknown>[];
 }
 
+/** One drill-down candidate the backend evaluated (surfaced for transparency/debugging). */
+export interface DrilldownCandidate {
+  field: string;
+  table: string;
+  distinctCount: number;
+  eligible: boolean;
+  score: number;
+}
+
+/** The analysis block returned by POST /api/drilldown: whether a further drill is meaningful. */
+export interface DrilldownAnalysis {
+  enabled: boolean;
+  reason: string;
+  nextDimension: string | null;
+  currentDimension: string | null;
+  candidates: DrilldownCandidate[];
+}
+
+/** Full response of POST /api/drilldown: the current level's rows plus the next-level analysis. */
+export interface DrilldownResponse {
+  generatedSql: string;
+  data: Record<string, unknown>[];
+  drilldown: DrilldownAnalysis;
+}
+
+/** One accumulated drill filter sent to the backend: {field=value}, or the null bucket. */
+export interface DrilldownFilter {
+  field: string;
+  value?: string | number | boolean;
+  isNull?: boolean;
+}
+
+/** Request body for POST /api/drilldown. */
+export interface DrilldownRequest {
+  dataset: string;
+  currentDimension: string | null;
+  measure: { field: string; aggregation: string; alias: string };
+  /** Accumulated drill-click filters (one equality/null per drilled level). */
+  filters: DrilldownFilter[];
+  /** The widget's own configured filters (IN/range/etc.), carried so every level respects them. */
+  baseFilters?: { condition?: string; rules: unknown[] };
+  chartType?: string;
+  topN?: number;
+}
+
 /**
  * Reads stored datasets from the backend (DatasetController) so the Dashboard Builder can load a
  * table's real columns and rows straight from PostgreSQL. `environment.apiUrl` already ends in /api.
@@ -101,6 +146,17 @@ export class BackendIntegrationService {
   executeQuery(config: Record<string, unknown>): Promise<QueryExecuteResponse> {
     return firstValueFrom(
       this.http.post<QueryExecuteResponse>(`${this.base}/execute-query`, config)
+    );
+  }
+
+  /**
+   * Runs one drill level and asks the backend whether a deeper drill is meaningful. Returns the current
+   * level's rows plus a `drilldown` block with `enabled` + the auto-picked `nextDimension`. The next
+   * dimension is chosen server-side by cardinality — the client never has to configure a drill path.
+   */
+  drilldown(request: DrilldownRequest): Promise<DrilldownResponse> {
+    return firstValueFrom(
+      this.http.post<DrilldownResponse>(`${this.base}/drilldown`, request)
     );
   }
 }
