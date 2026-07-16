@@ -126,9 +126,17 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     // Restore the in-progress canvas (e.g. when returning from the full-screen Preview) so the user's
     // widgets and their grid layout survive the round-trip. Skipped when opening a specific saved
     // dashboard from the route, which restores its own widgets instead.
-    if (!this.pendingDashboardId && this.draft.widgets().length) {
-      this.committedWidgets = this.draft.widgets().map(w => ({ ...w }));
-      this.widgetSeq = this.committedWidgets.reduce((max, w) => Math.max(max, w.id), 0);
+    //
+    // Only restore the draft when a dataset is active. On a fresh app open (no active dataset — the
+    // selection is in-memory and resets on reload) we start with a clean canvas and drop any stale
+    // sessionStorage draft, so no data from a previous session shows until the user uploads again.
+    if (!this.pendingDashboardId) {
+      if (this.active.activeKey !== NO_ACTIVE_DATASET && this.draft.widgets().length) {
+        this.committedWidgets = this.draft.widgets().map(w => ({ ...w }));
+        this.widgetSeq = this.committedWidgets.reduce((max, w) => Math.max(max, w.id), 0);
+      } else if (this.active.activeKey === NO_ACTIVE_DATASET && this.draft.widgets().length) {
+        this.draft.set([], 'Untitled dashboard');
+      }
     }
     this.loadDatasets();
   }
@@ -147,10 +155,14 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
       // Focus the builder on the globally-active dataset (schema). Older datasets stay
       // in the database but are not offered in the picker. Skip when opening a saved
       // dashboard from the route (it restores its own dataset).
-      if (this.datasets.length && !this.pendingDashboardId) {
-        const target = this.activeSchemaDataset();
+      if (!this.pendingDashboardId) {
+        const target = this.datasets.length ? this.activeSchemaDataset() : undefined;
         if (target) {
           await this.activateDatasetById(target.id, true);
+        } else {
+          // No active dataset -> clear the builder (this also drops the built-in demo columns) so
+          // nothing is shown until the user uploads or explicitly picks a dataset.
+          await this.activateDatasetById('', true);
         }
       }
     } catch {
@@ -197,6 +209,11 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
 
   /** One row per uploaded dataset family (its newest version), so the picker lists every dataset. */
   get visibleDatasets(): DatasetSummary[] {
+    // Gate on an active dataset: offer nothing until the user has uploaded (or explicitly picked)
+    // a dataset, so the builder starts as a clean slate on a fresh open.
+    if (this.active.activeKey === NO_ACTIVE_DATASET) {
+      return [];
+    }
     const seen = new Set<string>();
     const out: DatasetSummary[] = [];
     for (const d of this.datasets) {   // datasets come newest-first
@@ -549,7 +566,8 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
       id: index + 1,
       viz,
       title: String(chart['title'] ?? widget.widget_name ?? 'Widget'),
-      chartType: this.parseChartType(chart['chartType']) ?? (this.isChartViz(viz) ? this.meta(viz).t : null),
+      // meta(viz) is undefined for an unknown/corrupted viz type; fall back to null instead of throwing.
+      chartType: this.parseChartType(chart['chartType']) ?? (this.isChartViz(viz) ? (this.meta(viz)?.t ?? null) : null),
       labels: [],
       datasets: [],
       primary: String(style['primary'] ?? this.palette[0]),
@@ -1172,6 +1190,34 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     }));
   }
 
+  /** Content signature of a widget (its name + chart + data config), ignoring the volatile layout id. */
+  private widgetSignature(w: DashboardWidgetRecord): string {
+    return JSON.stringify([
+      (w as any).widget_name ?? '',
+      (w as any).chart_config_json ?? {},
+      (w as any).database_config_json ?? {}
+    ]);
+  }
+
+  /**
+   * Merges the incoming canvas widgets into a dashboard's existing widgets WITHOUT duplicating.
+   * The backend PUT replaces the full widget set, so a plain append would double every widget each time
+   * an already-saved dashboard is reopened and saved again. De-duplicating by content signature keeps
+   * genuinely new widgets while dropping ones the target already has.
+   */
+  private mergeWidgetsDeduped(existing: DashboardWidgetRecord[], incoming: DashboardWidgetRecord[]): DashboardWidgetRecord[] {
+    const seen = new Set(existing.map(w => this.widgetSignature(w)));
+    const merged = [...existing];
+    for (const w of incoming) {
+      const sig = this.widgetSignature(w);
+      if (!seen.has(sig)) {
+        seen.add(sig);
+        merged.push(w);
+      }
+    }
+    return merged;
+  }
+
   /** Persists the current widget(s) to the chosen existing dashboards and/or a new one. */
   async confirmSave(): Promise<void> {
     if (this.saveBusy || !this.canConfirmSave()) {
@@ -1193,7 +1239,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
 
     const ops: Promise<unknown>[] = [];
 
-    // Add to each selected existing dashboard (backend replaces widgets, so merge old + new).
+    // Add to each selected existing dashboard (backend replaces widgets, so merge old + new, de-duped).
     for (const id of this.saveTargetIds) {
       const target = this.existingDashboards.find(d => d.dashboard_id === id);
       if (!target) continue;
@@ -1202,7 +1248,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
         name: target.name,
         description: target.description ?? description,
         schema_id: this.activeSchemaId,
-        widgets: [...this.mapExistingWidgets(target.widgets), ...widgets]
+        widgets: this.mergeWidgetsDeduped(this.mapExistingWidgets(target.widgets), widgets)
       };
       ops.push(firstValueFrom(this.dashboardService.updateDashboardRecord(id, payload)));
     }

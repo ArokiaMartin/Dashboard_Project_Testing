@@ -96,8 +96,8 @@ export class SchemaManagementService {
    */
   listSchemas(userId: string = environment.defaultUserId): Observable<SchemaResponse[]> {
     this.loading$.next(true);
-    return this.http.get<SchemaResponse[]>(
-      `${this.apiUrl}?userId=${userId}`
+    return this.http.post<SchemaResponse[]>(
+      `${this.apiUrl}/list`, { userId }
     ).pipe(
       tap((schemas) => {
         this.schemas$.next(schemas);

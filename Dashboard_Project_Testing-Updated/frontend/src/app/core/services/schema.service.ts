@@ -1,9 +1,6 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
-import { tap, catchError } from 'rxjs/operators';
-import { of } from 'rxjs';
 import { TableSchema, Column } from '@shared/types/dashboard.types';
-import { DashboardService } from './dashboard.service';
 
 @Injectable({
   providedIn: 'root'
@@ -14,26 +11,12 @@ export class SchemaService {
   private availableMeasures$ = new BehaviorSubject<Column[]>([]);
   private isSchemaLoaded$ = new BehaviorSubject<boolean>(false);
 
-  constructor(private dashboardService: DashboardService) {}
-
   /**
-   * Load schema from backend
+   * Return the current in-memory schema. Schema is populated via setSchema() from the ingestion flow;
+   * there is no dedicated backend schema endpoint.
    */
   loadSchema(): Observable<TableSchema | null> {
-    return this.dashboardService.getSchema().pipe(
-      tap((response: any) => {
-        if (response && response.schema) {
-          this.setSchema(response.schema);
-        } else if (response && response.data) {
-          this.setSchema(response.data);
-        }
-      }),
-      catchError((error) => {
-        console.error('Error loading schema:', error);
-        this.isSchemaLoaded$.next(false);
-        return of(null);
-      })
-    );
+    return this.currentSchema$.asObservable();
   }
 
   /**

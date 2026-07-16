@@ -159,10 +159,10 @@ interface UploadStage {
       <div class="upload-stage" *ngIf="stage === 'complete'">
         <div class="success-box">
           <div class="success-icon">✓</div>
-          <h2>Data Upload Complete!</h2>
-          <p class="success-message">{{ message }}</p>
+          <h2>{{ alreadyExisted ? 'This Data Already Exists' : 'Data Upload Complete!' }}</h2>
+          <p class="success-message">{{ alreadyExisted ? (duplicateMessage || 'This data is already stored — every page now shows the existing version.') : message }}</p>
 
-          <div class="success-stats">
+          <div class="success-stats" *ngIf="!alreadyExisted">
             <div class="stat">
               <div class="stat-label">Schema</div>
               <div class="stat-value">{{ schemaName }}</div>
@@ -478,14 +478,16 @@ export class SchemaDataUploadComponent implements OnInit, OnDestroy {
   schemaName: string = '';
   schemaId: string = '';
   schemaOver = false;
-  schemaUploading = false;
+  // Busy-visual flag used by the template. Mirrors schemaAnalyzing (the flag actually toggled by the
+  // analyze/upload flow) so the drop zone shows a busy state and can't be re-submitted mid-flight.
+  get schemaUploading(): boolean { return this.schemaAnalyzing; }
   schemaAnalyzing = false;
   schemaError = '';
 
   // Data upload
   dataFile: File | null = null;
   dataOver = false;
-  dataUploading = false;
+  get dataUploading(): boolean { return this.dataAnalyzing; }
   dataAnalyzing = false;
   dataError = '';
 
@@ -499,6 +501,17 @@ export class SchemaDataUploadComponent implements OnInit, OnDestroy {
   checkingDuplicate = false;
   isDuplicate = false;
   duplicateMessage = '';
+
+  /**
+   * True when this upload did not add any new data — either the data was detected as an exact
+   * duplicate of an existing version, or the backend deduped every row (0 rows inserted). In that
+   * case we show an honest "already exists" completion screen instead of a misleading "0 rows".
+   */
+  get alreadyExisted(): boolean {
+    if (this.isDuplicate) return true;
+    const r = this.ingestionResult;
+    return !!r && (r.rowsInserted || 0) === 0;
+  }
 
   private destroy$ = new Subject<void>();
 
@@ -660,9 +673,15 @@ export class SchemaDataUploadComponent implements OnInit, OnDestroy {
       (result) => {
         this.checkingDuplicate = false;
         if (result.isDuplicate && result.existingVersion) {
+          // The data is byte-for-byte an existing version: reuse it instead of re-ingesting a
+          // redundant copy (which would create a duplicate table/version).
           this.isDuplicate = true;
-          this.duplicateMessage = `This data matches version ${result.existingVersion.versionNumber} (${result.existingVersion.uploadedAt.split('T')[0]}). Using existing version.`;
-          this.sendIngest(data, checksum, result.existingVersion.versionId);
+          this.duplicateMessage = `This data matches version ${result.existingVersion.versionNumber} (${result.existingVersion.uploadedAt.split('T')[0]}). Using the existing version — no re-ingestion needed.`;
+          this.dataAnalyzing = false;
+          this.stage = 'complete';
+          // Even though nothing was re-ingested, switch every page to this schema's existing dataset so
+          // the user still sees the data they just uploaded (instead of a stale/previous dataset).
+          this.active.refreshAfterUpload(this.schemaName);
         } else {
           this.sendIngest(data, checksum);
         }
@@ -735,7 +754,10 @@ export class SchemaDataUploadComponent implements OnInit, OnDestroy {
         if (isDup) {
           this.message += ' (Using existing version due to matching data)';
         }
-        this.active.refreshAfterUpload(this.schemaName);
+        // Pass the exact dataset id the backend resolved to (a new dataset, or the existing version a
+        // deduped re-upload reused) so every page reliably switches to THIS data — even when no new row
+        // was created (which would otherwise leave pages on a stale/previous dataset).
+        this.active.refreshAfterUpload(this.schemaName, result?.uploadId);
       },
       (error) => {
         this.dataError = error.error?.message || 'Failed to ingest data';

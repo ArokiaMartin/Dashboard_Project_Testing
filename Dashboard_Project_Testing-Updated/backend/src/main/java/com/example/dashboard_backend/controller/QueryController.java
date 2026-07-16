@@ -45,7 +45,7 @@ public class QueryController {
 
     public static GeneratedQuery generateSql(JsonNode config) {
 
-        String dataset = quoteIdentifier(validateIdentifier(config.get("dataset").asText(), "dataset"));
+        String dataset = quoteIdentifier(validateIdentifier(requireText(config, "dataset", "query config"), "dataset"));
 
         List<Object> params = new ArrayList<>();
         List<String> selectParts = new ArrayList<>();
@@ -68,9 +68,9 @@ public class QueryController {
 
         if (measures != null && measures.isArray()) {
             for (JsonNode measure : measures) {
-                String field = quoteIdentifier(validateIdentifier(measure.get("field").asText(), "measure field"));
-                String aggregation = validateAggregation(measure.get("aggregation").asText());
-                String alias = quoteIdentifier(validateIdentifier(measure.get("alias").asText(), "measure alias"));
+                String field = quoteIdentifier(validateIdentifier(requireText(measure, "field", "measure"), "measure field"));
+                String aggregation = validateAggregation(requireText(measure, "aggregation", "measure"));
+                String alias = quoteIdentifier(validateIdentifier(requireText(measure, "alias", "measure"), "measure alias"));
 
                 String measureTarget = switch (aggregation) {
                     // Only cast strictly-numeric text to NUMERIC; empty/whitespace/non-numeric
@@ -123,14 +123,19 @@ public class QueryController {
             JsonNode rules = filters.get("rules");
 
             for (JsonNode rule : rules) {
-                String field = quoteIdentifier(validateIdentifier(rule.get("field").asText(), "filter field"));
-                String operator = cleanOperator(rule.get("operator").asText());
+                String field = quoteIdentifier(validateIdentifier(requireText(rule, "field", "filter rule"), "filter field"));
+                String operator = cleanOperator(requireText(rule, "operator", "filter rule"));
 
                 if (operator.equalsIgnoreCase("IN")) {
 
+                    JsonNode valuesNode = requireNode(rule, "values", "IN filter");
+                    if (!valuesNode.isArray() || valuesNode.isEmpty()) {
+                        throw new IllegalArgumentException("IN filter requires a non-empty 'values' array");
+                    }
+
                     List<String> placeholders = new ArrayList<>();
 
-                    for (JsonNode value : rule.get("values")) {
+                    for (JsonNode value : valuesNode) {
                         placeholders.add("?");
                         params.add(valueOf(value));
                     }
@@ -140,12 +145,12 @@ public class QueryController {
                 } else if (operator.equalsIgnoreCase("BETWEEN")) {
 
                     whereParts.add(field + " BETWEEN ? AND ?");
-                    params.add(rule.get("from").asText());
-                    params.add(rule.get("to").asText());
+                    params.add(requireText(rule, "from", "BETWEEN filter"));
+                    params.add(requireText(rule, "to", "BETWEEN filter"));
 
                 } else {
 
-                    JsonNode valueNode = rule.get("value");
+                    JsonNode valueNode = requireNode(rule, "value", "filter rule");
                     whereParts.add(field + " " + operator + " ?");
                     params.add(valueOf(valueNode));
                 }
@@ -170,9 +175,9 @@ public class QueryController {
             List<String> havingParts = new ArrayList<>();
 
             for (JsonNode rule : having) {
-                String measure = quoteIdentifier(validateIdentifier(rule.get("measure").asText(), "having measure"));
-                String operator = cleanOperator(rule.get("operator").asText());
-                JsonNode valueNode = rule.get("value");
+                String measure = quoteIdentifier(validateIdentifier(requireText(rule, "measure", "having rule"), "having measure"));
+                String operator = cleanOperator(requireText(rule, "operator", "having rule"));
+                JsonNode valueNode = requireNode(rule, "value", "having rule");
 
                 havingParts.add(measure + " " + operator + " ?");
                 params.add(valueOf(valueNode));
@@ -191,8 +196,8 @@ public class QueryController {
             List<String> orderParts = new ArrayList<>();
 
             for (JsonNode sort : sorting) {
-                String field = quoteIdentifier(validateIdentifier(sort.get("field").asText(), "sort field"));
-                String direction = validateDirection(sort.get("direction").asText());
+                String field = quoteIdentifier(validateIdentifier(requireText(sort, "field", "sort rule"), "sort field"));
+                String direction = validateDirection(requireText(sort, "direction", "sort rule"));
 
                 orderParts.add(field + " " + direction);
             }
@@ -252,6 +257,24 @@ public class QueryController {
         if (valueNode.isNumber()) return valueNode.numberValue();
         if (valueNode.isBoolean()) return valueNode.booleanValue();
         return valueNode.asText();
+    }
+
+    /** Returns the child node, throwing a 400-mapped IllegalArgumentException when it is missing/null. */
+    private static JsonNode requireNode(JsonNode parent, String field, String context) {
+        JsonNode node = parent == null ? null : parent.get(field);
+        if (node == null || node.isNull()) {
+            throw new IllegalArgumentException("Missing required '" + field + "' in " + context);
+        }
+        return node;
+    }
+
+    /** Returns the child node's non-blank text, throwing a 400-mapped IllegalArgumentException when absent. */
+    private static String requireText(JsonNode parent, String field, String context) {
+        String text = requireNode(parent, field, context).asText(null);
+        if (text == null || text.isBlank()) {
+            throw new IllegalArgumentException("Missing required '" + field + "' in " + context);
+        }
+        return text;
     }
 
     private static String validateIdentifier(String identifier, String kind) {
@@ -376,6 +399,10 @@ public class QueryController {
         }
 
         ObjectNode normalized = objectNode.deepCopy();
+        // Never trust a client-supplied FROM clause: the server is the sole authority for datasetFromSql.
+        // Dropping it here closes the SQL-injection vector where arbitrary SQL spliced into the FROM would
+        // otherwise be appended verbatim by generateSql(). The server rebuilds it below (nested or flat).
+        normalized.remove("datasetFromSql");
         String datasetToken = normalized.path("dataset").asText(null);
         DatasetMeta datasetMeta = resolveDatasetMeta(datasetToken);
         normalized.put("dataset", datasetMeta.tableName());
@@ -404,6 +431,16 @@ public class QueryController {
             remapFilters(normalized.with("filters").withArray("rules"), fieldMap);
             remapHaving(normalized.withArray("having"), fieldMap);
             remapSorting(normalized.withArray("sorting"), fieldMap);
+
+            // A single physical table holds EVERY version's rows (PK is (upload_id, row_id)). Scope the
+            // query to this upload's rows only, otherwise measures/counts silently mix data across
+            // versions. The upload id is a validated UUID (never user input), so the literal is safe.
+            if (datasetMeta.uploadId() != null) {
+                String scopedFrom = "(SELECT * FROM " + quoteIdentifier(datasetMeta.tableName())
+                        + " WHERE upload_id = '" + datasetMeta.uploadId() + "'::uuid) AS "
+                        + quoteIdentifier(datasetMeta.tableName());
+                normalized.put("datasetFromSql", scopedFrom);
+            }
         }
 
         return normalized;

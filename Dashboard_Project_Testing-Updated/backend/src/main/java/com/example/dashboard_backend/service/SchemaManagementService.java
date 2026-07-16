@@ -4,6 +4,7 @@ import com.example.dashboard_backend.ingestion.metadata.SchemaRepository;
 import com.example.dashboard_backend.ingestion.model.Schema;
 import com.example.dashboard_backend.ingestion.model.SchemaField;
 import com.example.dashboard_backend.ingestion.schema.SchemaValidationService;
+import com.example.dashboard_backend.exception.NotFoundException;
 import com.example.dashboard_backend.model.SchemaResponse;
 import com.example.dashboard_backend.model.SchemaUploadRequest;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -52,9 +53,15 @@ public class SchemaManagementService {
             .collect(Collectors.toList());
     }
 
-    public void deleteSchema(UUID schemaId, String deletedBy) {
+    public void deleteSchema(UUID schemaId, UUID requesterId, String deletedBy) {
         Schema schema = schemaRepository.findById(schemaId)
-            .orElseThrow(() -> new IllegalArgumentException("Schema not found: " + schemaId));
+            .orElseThrow(() -> new NotFoundException("Schema not found: " + schemaId));
+
+        // Ownership check: a caller may only delete a schema they own. Return "not found" rather than
+        // "forbidden" so we don't reveal the existence of another user's schema.
+        if (requesterId != null && schema.userId() != null && !schema.userId().equals(requesterId)) {
+            throw new NotFoundException("Schema not found: " + schemaId);
+        }
 
         schemaRepository.recordAuditLog(
             schemaId,

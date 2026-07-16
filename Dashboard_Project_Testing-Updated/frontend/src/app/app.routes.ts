@@ -15,5 +15,7 @@ export const routes: Routes = [
   { path: 'data', component: DataExplorerComponent },
   { path: 'preview', component: DashboardPreviewComponent },
   { path: 'dashboards', component: DashboardsComponent },
-  { path: 'settings', component: SettingsComponent }
+  { path: 'settings', component: SettingsComponent },
+  // Catch-all: send unknown URLs back to Home instead of rendering a blank router outlet.
+  { path: '**', redirectTo: '/home' }
 ];

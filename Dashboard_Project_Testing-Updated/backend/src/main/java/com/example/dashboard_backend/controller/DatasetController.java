@@ -23,6 +23,25 @@ public class DatasetController {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    /** Reads an optional integer "limit" from a POST request body, tolerating JSON numbers or numeric strings. */
+    private static int extractLimit(Map<String, Object> body, int defaultValue) {
+        if (body == null) {
+            return defaultValue;
+        }
+        Object value = body.get("limit");
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            try {
+                return Integer.parseInt(text.trim());
+            } catch (NumberFormatException ignored) {
+                return defaultValue;
+            }
+        }
+        return defaultValue;
+    }
+
     /** List all datasets uploaded by user_123. */
     @GetMapping
     public List<Map<String, Object>> listDatasets() {
@@ -33,11 +52,11 @@ public class DatasetController {
         );
     }
 
-    /** Get rows for a dataset (default 500, up to 10000 via ?limit=), with column names and types. */
-    @GetMapping("/{uploadId}/rows")
+    /** Get rows for a dataset (default 500, up to 10000 via a JSON body {"limit": n}), with column names and types. */
+    @PostMapping("/{uploadId}/rows")
     public ResponseEntity<Map<String, Object>> getRows(@PathVariable UUID uploadId,
-                                                       @RequestParam(defaultValue = "500") int limit) {
-        int rowLimit = Math.min(Math.max(limit, 1), 10000);
+                                                       @RequestBody(required = false) Map<String, Object> body) {
+        int rowLimit = Math.min(Math.max(extractLimit(body, 500), 1), 10000);
         List<Map<String, Object>> meta = jdbcTemplate.queryForList(
             "SELECT table_name FROM data_uploads WHERE id = ?",
             uploadId
@@ -229,10 +248,10 @@ public class DatasetController {
      * Note: two independent sibling collections under the same parent produce a cartesian expansion,
      * which is the inherent cost of flattening several nested arrays into one table.
      */
-    @GetMapping("/{uploadId}/flat-rows")
+    @PostMapping("/{uploadId}/flat-rows")
     public ResponseEntity<Map<String, Object>> getFlatRows(@PathVariable UUID uploadId,
-                                                          @RequestParam(defaultValue = "10000") int limit) {
-        int rowLimit = Math.min(Math.max(limit, 1), 50000);
+                                                          @RequestBody(required = false) Map<String, Object> body) {
+        int rowLimit = Math.min(Math.max(extractLimit(body, 10000), 1), 50000);
         List<Map<String, Object>> meta = jdbcTemplate.queryForList(
             "SELECT table_name FROM data_uploads WHERE id = ?", uploadId);
         if (meta.isEmpty()) {
@@ -361,39 +380,53 @@ public class DatasetController {
         }
         String tableName = (String) meta.get(0).get("table_name");
 
-        // Valid columns and which of them are numeric (safe to CAST + aggregate).
+        // Valid columns (by display OR normalized name) mapped to their physical column, and which are
+        // numeric (safe to CAST + aggregate). The physical table stores NORMALIZED column names, but the
+        // UI sends DISPLAY names (e.g. "Total Sales"); resolve one to the other so camelCase/spaced
+        // fields don't fail with "column does not exist".
         List<Map<String, Object>> fm = jdbcTemplate.queryForList(
-            "SELECT field_name, field_type FROM field_metadata WHERE upload_id = ?", uploadId);
-        Set<String> validColumns = new HashSet<>();
-        Set<String> numericColumns = new HashSet<>();
+            "SELECT field_name, normalized_field_name, field_type FROM field_metadata WHERE upload_id = ?", uploadId);
+        Map<String, String> physicalColumnByName = new HashMap<>();
+        Set<String> numericNames = new HashSet<>();
         for (Map<String, Object> f : fm) {
             String name = (String) f.get("field_name");
-            validColumns.add(name);
-            if ("numeric".equals(f.get("field_type"))) numericColumns.add(name);
+            String norm = (String) f.get("normalized_field_name");
+            physicalColumnByName.put(name, norm);
+            physicalColumnByName.put(norm, norm);
+            if ("numeric".equals(f.get("field_type"))) {
+                numericNames.add(name);
+                numericNames.add(norm);
+            }
         }
 
         String dimension = (String) body.get("dimension");
-        if (dimension != null && !validColumns.contains(dimension)) {
-            throw new IllegalArgumentException("Unknown dimension: " + dimension);
+        String dimensionCol = null;
+        if (dimension != null) {
+            dimensionCol = physicalColumnByName.get(dimension);
+            if (dimensionCol == null) {
+                throw new IllegalArgumentException("Unknown dimension: " + dimension);
+            }
         }
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> measures = (List<Map<String, Object>>) body.getOrDefault("measures", List.of());
 
         List<String> selectParts = new ArrayList<>();
-        if (dimension != null) selectParts.add(quoteIdentifier(dimension));
+        // Alias the physical column back to the display name so response keys match what the UI sent.
+        if (dimension != null) selectParts.add(quoteIdentifier(dimensionCol) + " AS " + quoteIdentifier(dimension));
 
         String firstMeasureExpr = null;
         for (Map<String, Object> m : measures) {
             String field = (String) m.get("field");
             String agg = String.valueOf(m.get("agg")).toUpperCase();
-            if (!numericColumns.contains(field)) {
+            String measureCol = physicalColumnByName.get(field);
+            if (measureCol == null || !numericNames.contains(field)) {
                 throw new IllegalArgumentException("Not a numeric measure: " + field);
             }
             if (!Set.of("SUM", "AVG", "MIN", "MAX", "COUNT").contains(agg)) {
                 throw new IllegalArgumentException("Invalid aggregation: " + agg);
             }
-            String col = quoteIdentifier(field);
+            String col = quoteIdentifier(measureCol);
             // Only cast strictly-numeric text; empty/whitespace/non-numeric values become NULL
             // (ignored by the aggregate) instead of failing the whole query.
             String expr = agg + "(CASE WHEN trim(" + col + "::text) ~ '^-?[0-9]+(\\.[0-9]+)?$' "
@@ -415,12 +448,12 @@ public class DatasetController {
         List<Object> filterValues = (List<Object>) body.get("filterValues");
         if (dimension != null && filterValues != null && !filterValues.isEmpty()) {
             String placeholders = filterValues.stream().map(v -> "?").collect(Collectors.joining(", "));
-            sql.append(" AND ").append(quoteIdentifier(dimension)).append(" IN (").append(placeholders).append(")");
+            sql.append(" AND ").append(quoteIdentifier(dimensionCol)).append(" IN (").append(placeholders).append(")");
             params.addAll(filterValues);
         }
 
         if (dimension != null) {
-            sql.append(" GROUP BY ").append(quoteIdentifier(dimension));
+            sql.append(" GROUP BY ").append(quoteIdentifier(dimensionCol));
         }
 
         // Top-N ordering by the first measure, when requested.
@@ -453,16 +486,30 @@ public class DatasetController {
 
         String tableName = (String) meta.get(0).get("table_name");
 
+        // A nested dataset also generates child tables (named "<root>_<field>", each carrying a
+        // parent_row_id). Collect them so this version's child rows are purged and — when the root is
+        // dropped — the child tables are dropped too, instead of being left orphaned.
+        List<String> childTables = jdbcTemplate.queryForList(
+            "SELECT table_name FROM information_schema.columns " +
+            "WHERE table_schema = current_schema() AND column_name = 'parent_row_id'",
+            String.class
+        ).stream()
+            .filter(t -> t.startsWith(tableName + "_"))
+            .distinct()
+            .collect(Collectors.toList());
+
         // A physical table can be shared by multiple data versions of the same schema (each version is
         // a separate data_uploads row / upload_id). Only remove this version's rows here, and drop the
         // table itself solely when no other upload still references it.
-        try {
-            jdbcTemplate.update(
-                "DELETE FROM " + quoteIdentifier(tableName) + " WHERE upload_id = ?",
-                uploadId
-            );
-        } catch (Exception ex) {
-            log.warn("Failed to delete rows for upload {} from table '{}'", uploadId, tableName, ex);
+        for (String table : prependRoot(tableName, childTables)) {
+            try {
+                jdbcTemplate.update(
+                    "DELETE FROM " + quoteIdentifier(table) + " WHERE upload_id = ?",
+                    uploadId
+                );
+            } catch (Exception ex) {
+                log.warn("Failed to delete rows for upload {} from table '{}'", uploadId, table, ex);
+            }
         }
 
         Integer otherUploads = jdbcTemplate.queryForObject(
@@ -470,11 +517,14 @@ public class DatasetController {
             Integer.class, tableName, uploadId
         );
         if (otherUploads == null || otherUploads == 0) {
-            try {
-                jdbcTemplate.execute("DROP TABLE IF EXISTS " + quoteIdentifier(tableName));
-            } catch (Exception ex) {
-                // Metadata is still removed below, but a failed drop leaves an orphaned table — surface it in logs.
-                log.warn("Failed to drop backing table '{}' for upload {}", tableName, uploadId, ex);
+            // Drop children first (they reference the root via parent_row_id), then the root table.
+            for (String table : appendRoot(tableName, childTables)) {
+                try {
+                    jdbcTemplate.execute("DROP TABLE IF EXISTS " + quoteIdentifier(table) + " CASCADE");
+                } catch (Exception ex) {
+                    // Metadata is still removed below, but a failed drop leaves an orphaned table — surface it in logs.
+                    log.warn("Failed to drop backing table '{}' for upload {}", table, uploadId, ex);
+                }
             }
         }
 
@@ -494,5 +544,20 @@ public class DatasetController {
 
     private String quoteIdentifier(String name) {
         return SqlIdentifier.quote(name);
+    }
+
+    /** Root table first, then its child tables — order for deleting this version's rows. */
+    private static List<String> prependRoot(String rootTable, List<String> childTables) {
+        List<String> all = new ArrayList<>();
+        all.add(rootTable);
+        all.addAll(childTables);
+        return all;
+    }
+
+    /** Child tables first, then the root — order for dropping (children reference the root). */
+    private static List<String> appendRoot(String rootTable, List<String> childTables) {
+        List<String> all = new ArrayList<>(childTables);
+        all.add(rootTable);
+        return all;
     }
 }

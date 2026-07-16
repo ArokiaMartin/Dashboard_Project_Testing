@@ -200,9 +200,9 @@ export class DashboardsComponent implements OnDestroy {
     return this.records.length;
   }
 
-  /** Denominator for the "X of N" count: all dashboards when searching, otherwise the scoped list. */
+  /** Denominator for the "X of N" count: always the active-dataset dashboards (search is scoped to it). */
   get baseCount(): number {
-    return this.isSearching ? this.records.length : this.dashboards.length;
+    return this.dashboards.length;
   }
 
   private loadDashboards(): void {
@@ -253,14 +253,14 @@ export class DashboardsComponent implements OnDestroy {
   }
 
   /**
-   * The dashboards to show. With no search term, the scoped list (active-dataset dashboards). With a
-   * term, a case-insensitive match by name/description across ALL dashboards, so a search always finds
-   * a dashboard regardless of which dataset it was built on.
+   * The dashboards to show. Both the default list and the search are scoped to the currently-active
+   * dataset family: a search only matches dashboards built on the active dataset, never across datasets.
    */
   get filteredDashboards(): DashItem[] {
     const q = this.filter.trim().toLowerCase();
     if (!q) return this.dashboards;
     return this.records
+      .filter(r => this.active.dashboardMatchesActive(r))
       .filter(r =>
         r.name.toLowerCase().includes(q) || (r.description || '').toLowerCase().includes(q)
       )

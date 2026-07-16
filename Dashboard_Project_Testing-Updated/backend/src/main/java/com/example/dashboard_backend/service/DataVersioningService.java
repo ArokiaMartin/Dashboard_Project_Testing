@@ -91,10 +91,12 @@ public class DataVersioningService {
 
     /**
      * Delete a version (useful for cleanup or removing corrupted uploads).
+     *
+     * @return {@code true} if a version was actually deleted, {@code false} if none matched the id.
      */
-    public void deleteVersion(String versionId) {
+    public boolean deleteVersion(String versionId) {
         logger.info("Deleting version: {}", versionId);
-        repository.deleteVersion(versionId);
+        return repository.deleteVersion(versionId) > 0;
     }
 
     /**

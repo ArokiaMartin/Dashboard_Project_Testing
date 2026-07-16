@@ -5,9 +5,11 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.example.dashboard_backend.controller.QueryController;
+import com.example.dashboard_backend.exception.NotFoundException;
 import jakarta.annotation.PostConstruct;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -65,40 +67,48 @@ public class DashboardService {
                 ADD COLUMN IF NOT EXISTS schema_id UUID
                 """);
 
-        // Ensure data_uploads.schema_id exists before the backfill JOIN references it.
-        // IngestionMetadataRepository also adds this column but its @PostConstruct
-        // may run after ours since there is no declared dependency between the two beans.
-        jdbcTemplate.execute("""
-                ALTER TABLE data_uploads
-                ADD COLUMN IF NOT EXISTS schema_id UUID
-                """);
+        // The data_uploads table is owned by the ingestion layer and may not exist yet on a fresh
+        // database (there is no declared bean-init order between us and IngestionMetadataRepository).
+        // Referencing it before it exists would abort @PostConstruct and fail application startup, so
+        // only touch it when it is already present. The ingestion layer adds schema_id itself, and this
+        // legacy backfill will simply run on a later startup once the table exists.
+        Boolean dataUploadsExists = jdbcTemplate.queryForObject(
+                "SELECT to_regclass('data_uploads') IS NOT NULL", Boolean.class);
+        if (Boolean.TRUE.equals(dataUploadsExists)) {
+            // Ensure data_uploads.schema_id exists before the backfill JOIN references it.
+            jdbcTemplate.execute("""
+                    ALTER TABLE data_uploads
+                    ADD COLUMN IF NOT EXISTS schema_id UUID
+                    """);
 
-        // Backfill schema_id for dashboards created before this column existed, by
-        // resolving the earliest widget's dataset upload_id to its schema_id. The CASE
-        // guard ensures the ::uuid cast only runs on values that look like a UUID.
-        jdbcTemplate.execute("""
-                UPDATE dashboards d
-                SET schema_id = sub.schema_id
-                FROM (
-                  SELECT DISTINCT ON (v.dashboard_id) v.dashboard_id, du.schema_id
-                  FROM (
-                    SELECT dashboard_id,
-                      CASE WHEN database_config_json->>'dataset' ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-                           THEN (database_config_json->>'dataset')::uuid END AS upload_id,
-                      created_at
-                    FROM dashboard_widgets
-                  ) v
-                  JOIN data_uploads du ON du.id = v.upload_id
-                  WHERE v.upload_id IS NOT NULL AND du.schema_id IS NOT NULL
-                  ORDER BY v.dashboard_id, v.created_at ASC
-                ) sub
-                WHERE d.dashboard_id = sub.dashboard_id
-                  AND d.schema_id IS NULL
-                  AND sub.schema_id IS NOT NULL
-                """);
+            // Backfill schema_id for dashboards created before this column existed, by
+            // resolving the earliest widget's dataset upload_id to its schema_id. The CASE
+            // guard ensures the ::uuid cast only runs on values that look like a UUID.
+            jdbcTemplate.execute("""
+                    UPDATE dashboards d
+                    SET schema_id = sub.schema_id
+                    FROM (
+                      SELECT DISTINCT ON (v.dashboard_id) v.dashboard_id, du.schema_id
+                      FROM (
+                        SELECT dashboard_id,
+                          CASE WHEN database_config_json->>'dataset' ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                               THEN (database_config_json->>'dataset')::uuid END AS upload_id,
+                          created_at
+                        FROM dashboard_widgets
+                      ) v
+                      JOIN data_uploads du ON du.id = v.upload_id
+                      WHERE v.upload_id IS NOT NULL AND du.schema_id IS NOT NULL
+                      ORDER BY v.dashboard_id, v.created_at ASC
+                    ) sub
+                    WHERE d.dashboard_id = sub.dashboard_id
+                      AND d.schema_id IS NULL
+                      AND sub.schema_id IS NOT NULL
+                    """);
+        }
     }
 
-        public Map<String, Object> createDashboard(Map<String, Object> request) {
+    @Transactional
+    public Map<String, Object> createDashboard(Map<String, Object> request) {
         UUID dashboardId = UUID.randomUUID();
         String userId = defaultIfBlank(asText(request.get("user_id")), "anonymous");
         String name = defaultIfBlank(asText(request.get("name")), "Untitled Dashboard");
@@ -143,7 +153,8 @@ public class DashboardService {
         return getDashboardById(dashboardId);
         }
 
-        public Map<String, Object> updateDashboard(UUID dashboardId, Map<String, Object> request) {
+    @Transactional
+    public Map<String, Object> updateDashboard(UUID dashboardId, Map<String, Object> request) {
         Integer count = jdbcTemplate.queryForObject(
             "SELECT COUNT(*) FROM dashboards WHERE dashboard_id = ?",
             Integer.class,
@@ -151,7 +162,7 @@ public class DashboardService {
         );
 
         if (count == null || count == 0) {
-            throw new IllegalArgumentException("Dashboard not found: " + dashboardId);
+            throw new NotFoundException("Dashboard not found: " + dashboardId);
         }
 
         String userId = defaultIfBlank(asText(request.get("user_id")), "anonymous");
@@ -220,7 +231,7 @@ public class DashboardService {
         return result;
     }
 
-    public Map<String, Object> getDashboardById(UUID dashboardId) {
+        public Map<String, Object> getDashboardById(UUID dashboardId) {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 """
                 SELECT dashboard_id, user_id, name, description, schema_id, created_at, updated_at
@@ -231,7 +242,7 @@ public class DashboardService {
         );
 
         if (rows.isEmpty()) {
-            throw new IllegalArgumentException("Dashboard not found: " + dashboardId);
+            throw new NotFoundException("Dashboard not found: " + dashboardId);
         }
 
         Map<String, Object> dashboard = new LinkedHashMap<>(rows.get(0));
@@ -239,6 +250,7 @@ public class DashboardService {
         return dashboard;
     }
 
+    @Transactional
     public Map<String, Object> deleteDashboard(UUID dashboardId) {
         int deleted = jdbcTemplate.update(
             "DELETE FROM dashboards WHERE dashboard_id = ?",
@@ -246,7 +258,7 @@ public class DashboardService {
         );
 
         if (deleted == 0) {
-            throw new IllegalArgumentException("Dashboard not found: " + dashboardId);
+            throw new NotFoundException("Dashboard not found: " + dashboardId);
         }
 
         Map<String, Object> response = new LinkedHashMap<>();
@@ -408,6 +420,10 @@ public class DashboardService {
             config.put(String.valueOf(entry.getKey()), entry.getValue());
         }
 
+        // The server is the sole authority for the FROM clause. Drop any client/stored datasetFromSql so
+        // it can never be appended verbatim by generateSql() (SQL-injection defense); it is rebuilt below.
+        config.remove("datasetFromSql");
+
         String datasetToken = asText(config.get("dataset"));
         UUID uploadId = null;
         if (datasetToken != null && !datasetToken.isBlank()) {
@@ -438,6 +454,17 @@ public class DashboardService {
                 fieldMap.put(normalizedName, normalizedName);
             }
             remapConfigFieldNames(config, fieldMap);
+
+            // A single physical table holds EVERY version's rows (PK is (upload_id, row_id)). Scope the
+            // query to this upload only, otherwise measures/counts silently mix data across versions. The
+            // upload id is a validated UUID (never user input) and the table name is quoted, so this is safe.
+            String tableName = asText(config.get("dataset"));
+            if (tableName != null && !tableName.isBlank()) {
+                String quoted = "\"" + tableName.replace("\"", "\"\"") + "\"";
+                String scopedFrom = "(SELECT * FROM " + quoted
+                        + " WHERE upload_id = '" + uploadId + "'::uuid) AS " + quoted;
+                config.put("datasetFromSql", scopedFrom);
+            }
         }
 
         return config;

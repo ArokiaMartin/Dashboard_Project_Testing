@@ -17,7 +17,7 @@ public class HelloController {
             @ApiResponse(responseCode = "200", description = "Service is up")
         }
     )
-    @GetMapping("/hello")
+    @GetMapping("/api/hello")
     public String hello() {
         return "Hello World";
     }

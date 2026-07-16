@@ -67,15 +67,16 @@ public class SchemaController {
 
     @Operation(
         summary = "List all schemas for user",
-        description = "Retrieve all active schemas created by the user.",
+        description = "Retrieve all active schemas created by the user. The user id is supplied in the request body.",
         responses = {
             @ApiResponse(responseCode = "200", description = "Schemas retrieved successfully")
         }
     )
-    @GetMapping
+    @PostMapping("/list")
     public ResponseEntity<List<SchemaResponse>> listSchemas(
-        @RequestParam(defaultValue = "user_123") String userId
+        @RequestBody(required = false) Map<String, String> body
     ) {
+        String userId = body != null && body.get("userId") != null ? body.get("userId") : "user_123";
         UUID userUuid = parseUserId(userId);
         List<SchemaResponse> schemas = schemaManagementService.listSchemasByUser(userUuid);
         return ResponseEntity.ok(schemas);
@@ -94,7 +95,8 @@ public class SchemaController {
         @PathVariable UUID schemaId,
         @RequestParam(defaultValue = "user_123") String userId
     ) {
-        schemaManagementService.deleteSchema(schemaId, userId);
+        UUID userUuid = parseUserId(userId);
+        schemaManagementService.deleteSchema(schemaId, userUuid, userId);
         return ResponseEntity.ok(Map.of("message", "Schema deleted successfully"));
     }
 

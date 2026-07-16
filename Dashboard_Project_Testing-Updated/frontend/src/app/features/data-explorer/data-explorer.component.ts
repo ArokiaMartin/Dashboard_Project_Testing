@@ -53,7 +53,8 @@ interface ChildTable {
           <h1>Uploaded Data</h1>
           <p class="sub" *ngIf="loading">Loading datasets…</p>
           <p class="sub" *ngIf="!loading && activeDataset">{{ dsName(activeDataset) }} — {{ userId }}</p>
-          <p class="sub" *ngIf="!loading && !activeDataset">No dataset uploaded yet — {{ userId }}</p>
+          <p class="sub" *ngIf="!loading && !activeDataset && datasets.length">Select a dataset to view it — {{ userId }}</p>
+          <p class="sub" *ngIf="!loading && !activeDataset && !datasets.length">No dataset uploaded yet — {{ userId }}</p>
         </div>
         <div class="head-actions">
           <input #fileInput type="file" accept=".json,.csv,.xlsx,.xls" hidden (change)="onUploadSelect($event)" />
@@ -76,6 +77,7 @@ interface ChildTable {
       <div class="ds-tabs" *ngIf="!fullscreen && datasets.length">
         <span class="ds-tabs-label">Dataset</span>
         <select class="ds-select" [ngModel]="selected" (ngModelChange)="chooseDataset($event)">
+          <option [ngValue]="-1" disabled>Select a dataset…</option>
           <option *ngFor="let d of datasets; let i = index" [ngValue]="i">{{ dsName(d) }} · {{ d.row_count }} rows</option>
         </select>
       </div>
@@ -96,7 +98,7 @@ interface ChildTable {
             <!-- Empty state -->
       <div class="empty-state" *ngIf="!loading && datasets.length === 0">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5"><path d="M3 3h18v18H3z"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
-        <p>No dataset selected. Upload a file or pick a dataset from the sidebar to get started.</p>
+        <p>No dataset uploaded yet. Upload a file to view and explore your data.</p>
       </div>
 
       <!-- Explorer -->
@@ -104,6 +106,11 @@ interface ChildTable {
         <!-- Table detail -->
         <section class="detail">
           <div class="loading-rows" *ngIf="loadingRows">Loading rows...</div>
+
+          <div class="empty-state" *ngIf="!loadingRows && !activeDataset">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5"><path d="M3 3h18v18H3z"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+            <p>Select a dataset above to view its rows, or upload a new file.</p>
+          </div>
 
           <ng-container *ngIf="!loadingRows && activeDataset">
             <div class="detail-head">
@@ -396,27 +403,29 @@ export class DataExplorerComponent implements OnInit, OnDestroy {
 
   loadDatasets() {
     this.loading = true;
-    const prevId = this.datasets[this.selected]?.id;
     this.http.get<Dataset[]>(`${environment.apiUrl}/datasets`).subscribe({
       next: (data) => {
-        // Show every uploaded dataset — one row per dataset family (its newest version). Older
-        // versions of the same dataset are collapsed into that row to keep the list clean.
-        const all = data || [];
+        // List every uploaded dataset (one entry per family, newest version) so the user can browse
+        // and pick which one to work with. Choosing a dataset here sets it as the app-wide active
+        // dataset that the Builder and My Dashboards scope to — this page is that entry point, so it
+        // must always show the full list (never hide datasets behind the active selection).
         const seen = new Set<string>();
         const unique: Dataset[] = [];
-        for (const d of all) {
+        for (const d of (data || [])) {
           const key = this.active.familyKeyOf(d as any);
           if (!seen.has(key)) { seen.add(key); unique.push(d); }
         }
         this.datasets = unique;
         this.loading = false;
-        if (this.datasets.length > 0) {
-          // Keep the dataset the user was viewing; otherwise fall back to the active one, then the first.
-          let idx = prevId ? this.datasets.findIndex((d) => d.id === prevId) : -1;
-          if (idx < 0) idx = this.datasets.findIndex((d) => this.active.datasetMatchesActive(d as any));
-          this.select(idx < 0 ? 0 : idx);
+        // Mirror the app-wide active dataset: after an upload (or a pick anywhere) this page jumps to
+        // that dataset. When nothing is active yet (fresh open) stay neutral instead of auto-showing a
+        // stale dataset — the selector above still lists every dataset so the user can pick one.
+        const idx = this.datasets.findIndex((d) => this.active.datasetMatchesActive(d as any));
+        if (idx >= 0) {
+          this.select(idx);
         } else {
-          this.columns = []; this.columnTypes = []; this.rows = []; this.visibleRows = [];
+          this.selected = -1;
+          this.columns = []; this.columnTypes = []; this.rows = []; this.visibleRows = []; this.childTables = [];
         }
       },
       error: () => { this.loading = false; }
@@ -511,6 +520,9 @@ export class DataExplorerComponent implements OnInit, OnDestroy {
       next: () => {
         // Reload so the previously uploaded dataset (if any) becomes the current one.
         this.columns = []; this.columnTypes = []; this.rows = []; this.visibleRows = [];
+        // Refresh the shared active-dataset selection so a deleted family drops out of the sidebar
+        // instead of leaving a stale active key pointing at a dataset that no longer exists.
+        this.active.reload();
         this.loadDatasets();
       },
       error: () => { this.uploadError = `Could not delete "${ds.original_filename}". Please try again.`; }

@@ -57,7 +57,10 @@ export class UploadService {
         await this.ingestStagedUpload(analysis.uploadToken, file);
       }
     } catch (error) {
+      // Surface the failure instead of silently continuing with a local-only preview: if the backend
+      // never received the file, the dataset was not saved and the user must know.
       console.error('Failed to upload to backend:', error);
+      throw new Error('Upload failed: the file could not be saved to the server. Please check the backend connection and try again.');
     }
     const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
     let tables: DataTable[];

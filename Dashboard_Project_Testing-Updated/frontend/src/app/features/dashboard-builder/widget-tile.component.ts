@@ -93,8 +93,8 @@ const PALETTE = ['#2563eb', '#60a5fa', '#93c5fd', '#1e40af', '#64748b', '#cbd5e1
         </div>
       </div>
 
-      <!-- Drill-down breadcrumb: only shown once a widget has a multi-dimension hierarchy to drill. -->
-      <div class="tile-drill" *ngIf="isDrillable()">
+      <!-- Drill-down breadcrumb: only shown while the user is actively drilling a multi-dimension hierarchy. -->
+      <div class="tile-drill" *ngIf="isDrillable() && drillStack.length">
         <button class="drill-crumb root" (click)="resetDrill()" [disabled]="!canReset()" title="Back to top level">
           {{ baseDimLabel() }}
         </button>
@@ -111,18 +111,17 @@ const PALETTE = ['#2563eb', '#60a5fa', '#93c5fd', '#1e40af', '#64748b', '#cbd5e1
       <div class="tile-body">
         <div class="tile-chart" *ngIf="showCanvas()"><canvas #cv></canvas></div>
 
-        <div class="tile-kpi" *ngIf="showKpiNumber()" [class.drillable]="canDrillDown()" (click)="onKpiClick()">
+        <div class="tile-kpi drillable" *ngIf="showKpiNumber()" (click)="onKpiClick()">
           <div class="tk-num">{{ spec.kpiTotal | number }}</div>
           <div class="tk-cap">Total {{ spec.kpiLabel }}</div>
-          <div class="tk-trend"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg> +12.5%</div>
-          <div class="tk-drillhint" *ngIf="canDrillDown()">click to break down by {{ currentDimLabel() }}</div>
+          <div class="tk-drillhint">click to view contributing rows</div>
         </div>
 
         <div class="tile-table" *ngIf="showRawTable()">
           <table>
             <thead><tr><th *ngFor="let c of spec.tableColumns">{{ c }}</th></tr></thead>
             <tbody>
-              <tr *ngFor="let r of spec.tableRows; let i = index" [class.drillable]="canDrillDown()" (click)="onRawRowClick(i)"><td *ngFor="let cell of r">{{ cell }}</td></tr>
+              <tr *ngFor="let r of spec.tableRows; let i = index" class="drillable" (click)="onRawRowClick(i)"><td *ngFor="let cell of r">{{ cell }}</td></tr>
             </tbody>
           </table>
         </div>
@@ -134,6 +133,35 @@ const PALETTE = ['#2563eb', '#60a5fa', '#93c5fd', '#1e40af', '#64748b', '#cbd5e1
               <tr *ngFor="let row of drillTableRows(); let i = index" [class.drillable]="canDrillDown()" (click)="onDrillRowClick(i)"><td *ngFor="let cell of row">{{ cell }}</td></tr>
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Drill-through popup: the raw rows behind a clicked chart segment / KPI total / table row. -->
+    <div class="rows-backdrop" *ngIf="rowsOpen" (click)="closeRows()">
+      <div class="rows-modal" (click)="$event.stopPropagation()">
+        <div class="rows-head">
+          <div class="rows-titles">
+            <div class="rows-title">{{ rowsTitle }}</div>
+            <div class="rows-sub">{{ rowsSubtitle }}</div>
+          </div>
+          <button class="rows-close" (click)="closeRows()" title="Close">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="rows-body">
+          <div class="rows-state" *ngIf="rowsLoading">Loading contributing rows…</div>
+          <div class="rows-state err" *ngIf="rowsError">{{ rowsError }}</div>
+          <div class="rows-empty" *ngIf="!rowsLoading && !rowsError && !rowsData.length">No contributing rows found.</div>
+          <table class="rows-table" *ngIf="!rowsLoading && !rowsError && rowsData.length">
+            <thead><tr><th *ngFor="let c of rowsColumns">{{ columnLabel(c) }}</th></tr></thead>
+            <tbody>
+              <tr *ngFor="let r of rowsData"><td *ngFor="let c of rowsColumns">{{ r[c] }}</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="rows-foot" *ngIf="!rowsLoading && !rowsError">
+          {{ rowsData.length }} row{{ rowsData.length === 1 ? '' : 's' }}<span *ngIf="rowsData.length >= rowsLimit"> (showing first {{ rowsLimit }})</span>
         </div>
       </div>
     </div>
@@ -175,7 +203,6 @@ const PALETTE = ['#2563eb', '#60a5fa', '#93c5fd', '#1e40af', '#64748b', '#cbd5e1
     .tile-kpi.drillable:hover { background: #f8fafc; }
     .tk-num { font-size: 40px; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; }
     .tk-cap { font-size: 12px; color: #94a3b8; text-transform: capitalize; margin-top: 2px; }
-    .tk-trend { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: #059669; margin-top: 10px; }
     .tk-drillhint { font-size: 10px; font-weight: 600; color: #2563eb; margin-top: 8px; }
     .tile-table { height: 100%; overflow: auto; }
     .tile-table table { width: 100%; border-collapse: collapse; }
@@ -183,6 +210,24 @@ const PALETTE = ['#2563eb', '#60a5fa', '#93c5fd', '#1e40af', '#64748b', '#cbd5e1
     .tile-table td { padding: 7px 10px; font-size: 12px; color: #334155; border-bottom: 1px solid #f4f6fb; white-space: nowrap; }
     .tile-table tbody tr.drillable { cursor: pointer; }
     .tile-table tbody tr.drillable:hover td { background: #eff6ff; color: #2563eb; }
+
+    /* Drill-through popup — a centred modal listing the raw rows behind a clicked value. */
+    .rows-backdrop { position: fixed; inset: 0; background: rgba(15,23,42,0.55); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .rows-modal { background: white; width: min(920px, 92vw); max-height: 82vh; border-radius: 14px; box-shadow: 0 30px 80px rgba(15,23,42,0.35); display: flex; flex-direction: column; overflow: hidden; }
+    .rows-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid #eef1f6; }
+    .rows-title { font-size: 15px; font-weight: 700; color: #0f172a; }
+    .rows-sub { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+    .rows-close { width: 30px; height: 30px; border: none; background: #f1f5f9; color: #475569; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .rows-close:hover { background: #e2e8f0; color: #0f172a; }
+    .rows-body { flex: 1; min-height: 0; overflow: auto; }
+    .rows-state { padding: 28px; text-align: center; color: #64748b; font-size: 13px; }
+    .rows-state.err { color: #ef4444; }
+    .rows-empty { padding: 28px; text-align: center; color: #94a3b8; font-size: 13px; }
+    .rows-table { width: 100%; border-collapse: collapse; }
+    .rows-table th { text-align: left; padding: 9px 14px; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; border-bottom: 1px solid #eef1f6; position: sticky; top: 0; background: #f8fafc; white-space: nowrap; }
+    .rows-table td { padding: 9px 14px; font-size: 12px; color: #334155; border-bottom: 1px solid #f4f6fb; white-space: nowrap; }
+    .rows-table tbody tr:hover td { background: #f8fafc; }
+    .rows-foot { padding: 10px 18px; border-top: 1px solid #eef1f6; font-size: 11px; color: #94a3b8; }
   `]
 })
 export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy {
@@ -230,6 +275,20 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
   private drillDatasets: Series[] | null = null;
   drillLoading = false;
   drillError = '';
+
+  // ---- drill-through popup (raw rows behind a clicked value) ----
+  /** Physical columns that are storage plumbing, hidden from the popup's row listing. */
+  private static readonly INTERNAL_COLS = new Set(['upload_id', 'row_id', 'parent_row_id']);
+  /** Hard cap on rows fetched for the popup, so a huge contributing set can't stall the UI. */
+  private static readonly ROWS_LIMIT = 500;
+  rowsOpen = false;
+  rowsLoading = false;
+  rowsError = '';
+  rowsTitle = '';
+  rowsSubtitle = '';
+  rowsColumns: string[] = [];
+  rowsData: Record<string, unknown>[] = [];
+  readonly rowsLimit = WidgetTileComponent.ROWS_LIMIT;
 
   constructor(private backend: BackendIntegrationService) {}
 
@@ -352,32 +411,44 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
     this.loadLevel([...this.drillStack, { field, value }]);
   }
 
-  /** Click on a bar/point/slice → drill into that category using the next dimension in the hierarchy. */
-  private onPointClick(chart: Chart, event: any): void {
+  /** Click on a bar/slice/point → open the drill-through popup listing the raw rows behind that value. */
+  private onChartValueClick(chart: Chart, event: any): void {
     const els = chart.getElementsAtEventForMode(event, 'nearest', { intersect: true }, true);
     if (!els.length) return;
     const label = chart.data.labels?.[els[0].index];
     if (label === undefined || label === null) return;
-    this.drillInto(String(label));
+    const dim = this.plottedDimension();
+    if (!dim) return;   // e.g. scatter charts have no single grouping dimension
+    this.openRows(
+      `${this.prettyField(dim)}: ${label}`,
+      'Rows contributing to this value',
+      { field: dim, operator: '=', value: String(label) }
+    );
   }
 
-  /** Click on a KPI's total → open its first breakdown (grouped by the first drill dimension). */
+  /** Click on a KPI's total → open the popup listing every row contributing to it. */
   onKpiClick(): void {
-    if (this.spec.viz !== 'kpi' || this.drillActive() || !this.isDrillable() || this.drillLoading) return;
-    this.loadLevel([]);
+    if (this.spec.viz !== 'kpi') return;
+    this.openRows(
+      this.spec.kpiLabel ? `Total ${this.prettyField(this.spec.kpiLabel)}` : (this.spec.title || 'Total'),
+      'All rows contributing to this total',
+      null
+    );
   }
 
-  /** Click on a raw-table row → drill using that row's first-column (base dimension) value. */
+  /** Click on a raw-table row → open the popup listing the rows sharing that row's first-column value. */
   onRawRowClick(rowIndex: number): void {
-    if (!this.canDrillDown() || this.drillLoading) return;
-    const db = this.spec.databaseConfig as any;
     const cols = this.spec.tableColumns ?? [];
-    const display = db?.drillBaseDisplay ? String(db.drillBaseDisplay) : '';
-    let idx = display ? cols.indexOf(display) : 0;
-    if (idx < 0) idx = 0;
-    const value = (this.spec.tableRows ?? [])[rowIndex]?.[idx];
+    const row = (this.spec.tableRows ?? [])[rowIndex];
+    if (!row || !cols.length) return;
+    const value = row[0];
     if (value === undefined || value === null) return;
-    this.drillInto(String(value));
+    const dim = this.plottedDimension();
+    this.openRows(
+      `${cols[0]}: ${value}`,
+      'Rows contributing to this row',
+      dim ? { field: dim, operator: '=', value: String(value) } : null
+    );
   }
 
   /** Click on a drilled-table row → drill deeper using that row's dimension value. */
@@ -481,6 +552,82 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
     };
   }
 
+  // ---- drill-through popup ----------------------------------------------------
+
+  /** The single dimension a chart/table is grouped by (its first dimension), or '' when there is none. */
+  private plottedDimension(): string {
+    const db = this.spec.databaseConfig as any;
+    if (db?.drillBase) return String(db.drillBase);
+    const dims = Array.isArray(db?.dimensions) ? db.dimensions : [];
+    return dims.length ? String(dims[0]) : '';
+  }
+
+  /** Human-friendly header for a raw column key shown in the popup table. */
+  columnLabel(field: string): string { return this.prettyField(field); }
+
+  /**
+   * Opens the scrollable popup listing the raw rows behind a clicked value. Reuses the SAME
+   * execute-query path (and therefore the SAME version/dataset scoping) the widget itself uses,
+   * but drops the grouping so the query returns the underlying records — filtered to the clicked
+   * value. `extraRule` is null for a KPI total (all contributing rows).
+   */
+  private openRows(title: string, subtitle: string, extraRule: { field: string; operator: string; value: string } | null): void {
+    const cfg = this.buildRowsConfig(extraRule);
+    if (!cfg) return;
+    this.rowsOpen = true;
+    this.rowsLoading = true;
+    this.rowsError = '';
+    this.rowsTitle = title;
+    this.rowsSubtitle = subtitle;
+    this.rowsColumns = [];
+    this.rowsData = [];
+    this.backend.executeQuery(cfg)
+      .then((res) => {
+        const rows = (res.data ?? []) as Record<string, unknown>[];
+        this.rowsData = rows.map((r) => this.stripInternal(r));
+        this.rowsColumns = this.rowsData.length ? Object.keys(this.rowsData[0]) : [];
+        this.rowsLoading = false;
+      })
+      .catch(() => {
+        this.rowsLoading = false;
+        this.rowsError = 'Could not load the contributing rows.';
+      });
+  }
+
+  closeRows(): void { this.rowsOpen = false; }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void { if (this.rowsOpen) this.closeRows(); }
+
+  /** Builds a SELECT-* execute-query config (no grouping) scoped exactly like the widget's own query,
+   *  plus the clicked value as an equality filter. Returns null when the widget has no query config. */
+  private buildRowsConfig(extraRule: { field: string; operator: string; value: string } | null): Record<string, unknown> | null {
+    const raw = this.spec.databaseConfig as any;
+    if (!raw || !raw.dataset) return null;
+    // Client-only drill hints and the aggregation shape are dropped: we want the raw rows, not a rollup.
+    const { drillPath, drillBase, drillBaseDisplay, drillMeasures, dimensions, measures, having, sorting, pagination, ...base } = raw;
+    const baseRules = Array.isArray(base?.filters?.rules) ? base.filters.rules : [];
+    const rules = extraRule ? [...baseRules, extraRule] : [...baseRules];
+    return {
+      ...base,
+      dimensions: [],
+      measures: [],
+      having: [],
+      sorting: [],
+      filters: { condition: 'AND', rules },
+      pagination: { top: WidgetTileComponent.ROWS_LIMIT, offset: 0 },
+    };
+  }
+
+  /** Drops internal physical columns from a raw row so only the user's real fields are listed. */
+  private stripInternal(row: Record<string, unknown>): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(row)) {
+      if (!WidgetTileComponent.INTERNAL_COLS.has(key)) out[key] = value;
+    }
+    return out;
+  }
+
   // ---- rendering --------------------------------------------------------------
 
   /** The spec to draw: the drilled labels/series if present, otherwise the untouched base spec.
@@ -518,12 +665,12 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
     if (!eff.chartType || this.spec.viz === 'table' || !this.canvas) return;
 
     const cfg = buildChartConfig(eff, true);
-    if (this.isDrillable()) {
-      cfg.options = cfg.options ?? {};
-      cfg.options.onClick = (evt: any, _els: unknown, chart: Chart) => this.onPointClick(chart, evt);
-    }
+    // Every category chart is clickable: a click opens the drill-through popup listing the raw
+    // rows behind the clicked value (scatter has no single grouping dimension, so it no-ops).
+    cfg.options = cfg.options ?? {};
+    cfg.options.onClick = (evt: any, _els: unknown, chart: Chart) => this.onChartValueClick(chart, evt);
     this.chart = new Chart(this.canvas.nativeElement.getContext('2d')!, cfg);
-    this.canvas.nativeElement.style.cursor = this.canDrillDown() ? 'pointer' : 'default';
+    this.canvas.nativeElement.style.cursor = this.spec.chartType === 'scatter' ? 'default' : 'pointer';
   }
 }
 

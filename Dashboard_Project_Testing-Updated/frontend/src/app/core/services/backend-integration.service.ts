@@ -55,14 +55,14 @@ export class BackendIntegrationService {
   /** Lists the schemas (id + display name) so datasets can be labelled by schema. */
   listSchemas(userId = environment.defaultUserId): Promise<SchemaSummary[]> {
     return firstValueFrom(
-      this.http.get<SchemaSummary[]>(`${this.base}/schemas?userId=${encodeURIComponent(userId)}`)
+      this.http.post<SchemaSummary[]>(`${this.base}/schemas/list`, { userId })
     );
   }
 
   /** Loads one dataset's columns, types, and rows. `limit` raises the backend's default 500-row cap (max 10000). */
   getDatasetData(uploadId: string, limit = 500): Promise<DatasetData> {
     return firstValueFrom(
-      this.http.get<DatasetData>(`${this.base}/datasets/${encodeURIComponent(uploadId)}/rows?limit=${limit}`)
+      this.http.post<DatasetData>(`${this.base}/datasets/${encodeURIComponent(uploadId)}/rows`, { limit })
     );
   }
 
@@ -73,7 +73,7 @@ export class BackendIntegrationService {
    */
   getDatasetFlatData(uploadId: string, limit = 10000): Promise<DatasetData> {
     return firstValueFrom(
-      this.http.get<DatasetData>(`${this.base}/datasets/${encodeURIComponent(uploadId)}/flat-rows?limit=${limit}`)
+      this.http.post<DatasetData>(`${this.base}/datasets/${encodeURIComponent(uploadId)}/flat-rows`, { limit })
     );
   }
 
