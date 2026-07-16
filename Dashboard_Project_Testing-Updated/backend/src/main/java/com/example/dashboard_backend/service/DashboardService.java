@@ -379,35 +379,6 @@ public class DashboardService {
     }
 
     /**
-     * Hydrates widget data by executing SQL generated from the widget's database config.
-     *
-     * <p>The raw config is run through the shared {@link QueryConfigNormalizer} — the SAME normalization
-     * the live {@code /execute-query} path uses — so nested/joined datasets get their join-aware
-     * {@code datasetFromSql} derived table and the hydration query returns real rows instead of failing
-     * on child-only columns. No widget query SQL is hardcoded here; all query text comes from
-     * {@link QueryController#generateSql}.
-     */
-    private void attachHydratedData(Map<String, Object> target, Object dbConfig) {
-        if (!(dbConfig instanceof Map<?, ?>)) {
-            return;
-        }
-
-        try {
-            QueryController.GeneratedQuery generated = buildWidgetQuery(dbConfig);
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    generated.sql(),
-                    generated.params().toArray()
-            );
-            target.put("generated_sql", QueryController.renderPreview(generated));
-            target.put("hydrated_data", rows);
-        } catch (Exception ignored) {
-            // Keep dashboard retrieval resilient even if one widget's query config is invalid.
-            target.put("generated_sql", "");
-            target.put("hydrated_data", Collections.emptyList());
-        }
-    }
-
-    /**
      * Builds the persisted {@code generated_sql} for a widget: a self-contained, join-aware SQL string
      * (bind values inlined via {@link QueryController#renderPreview}) so the value stored in
      * {@code dashboard_widgets.generated_sql} is a valid, runnable query for nested/joined datasets too.
