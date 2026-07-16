@@ -299,9 +299,7 @@ public class DashboardService {
             mapped.put("dashboard_id", widget.get("dashboard_id"));
             mapped.put("layout_json", fromJson(widget.get("layout_json")));
             mapped.put("chart_config_json", fromJson(widget.get("chart_config_json")));
-            Object dbConfig = fromJson(widget.get("database_config_json"));
-            mapped.put("database_config_json", dbConfig);
-            attachHydratedData(mapped, dbConfig);
+            mapped.put("database_config_json", fromJson(widget.get("database_config_json")));
             mapped.put("created_at", widget.get("created_at"));
             mapped.put("updated_at", widget.get("updated_at"));
             result.add(mapped);
