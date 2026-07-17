@@ -122,8 +122,8 @@ public class DataVersioningRepository {
     /**
      * Delete a version (cascade should handle related data)
      */
-    public void deleteVersion(String versionId) {
-        jdbcTemplate.update("DELETE FROM data_versions WHERE version_id = ?", versionId);
+    public int deleteVersion(String versionId) {
+        return jdbcTemplate.update("DELETE FROM data_versions WHERE version_id = ?", versionId);
     }
 
     /**

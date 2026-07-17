@@ -38,7 +38,8 @@ public class CsvIngestionService {
                 fileName = "uploaded_csv_file.csv";
             }
 
-            String tableName = fileName;
+            String tableName = com.example.dashboard_backend.ingestion.support.IdentifierNaming
+                    .sanitizeIdentifier(stripExtension(fileName), "csv_upload");
             UUID uploadId = UUID.randomUUID();
             UUID userId = com.example.dashboard_backend.util.AppConstants.USER_123;
 
@@ -50,20 +51,30 @@ public class CsvIngestionService {
 
                     CSVParser parser = CSVFormat.DEFAULT
                             .builder()
-                            .setHeader()
-                            .setSkipHeaderRecord(true)
                             .setTrim(true)
                             .build()
                             .parse(reader)
             ) {
 
-                Map<String, Integer> headers = parser.getHeaderMap();
-
-                if (headers == null || headers.isEmpty()) {
+                java.util.Iterator<CSVRecord> rowIterator = parser.iterator();
+                if (!rowIterator.hasNext()) {
                     throw new IllegalArgumentException("CSV file must contain headers");
                 }
 
-                createTableIfNotExists(tableName, headers.keySet());
+                // Read the header row positionally so repeated column names (common in Jira/BI
+                // exports) are preserved instead of collapsing into one, and strip a leading BOM.
+                CSVRecord headerRecord = rowIterator.next();
+                List<String> rawHeaders = new ArrayList<>();
+                for (String h : headerRecord) {
+                    rawHeaders.add(h == null ? "" : h.trim());
+                }
+                if (rawHeaders.isEmpty()) {
+                    throw new IllegalArgumentException("CSV file must contain headers");
+                }
+                rawHeaders.set(0, stripBom(rawHeaders.get(0)));
+                List<String> headers = makeHeadersUnique(rawHeaders);
+
+                createTableIfNotExists(tableName, headers);
 
                 List<Object> sampleRows = new ArrayList<>();
 
@@ -71,7 +82,7 @@ public class CsvIngestionService {
                 Map<String, Integer> nullCountMap = new LinkedHashMap<>();
                 Map<String, List<String>> sampleValuesMap = new LinkedHashMap<>();
 
-                for (String header : headers.keySet()) {
+                for (String header : headers) {
                     distinctValuesMap.put(header, new LinkedHashSet<>());
                     nullCountMap.put(header, 0);
                     sampleValuesMap.put(header, new ArrayList<>());
@@ -94,19 +105,20 @@ public class CsvIngestionService {
                                                 "processing"
                                 );
 
-                for (CSVRecord record : parser) {
+                for (CSVRecord record : (Iterable<CSVRecord>) () -> rowIterator) {
 
-                                        insertRow(record, tableName, headers.keySet(), uploadId);
+                    insertRow(record, tableName, headers, uploadId);
 
                     Map<String, String> rowMap = new LinkedHashMap<>();
 
-                    for (String originalColumn : headers.keySet()) {
+                    for (int c = 0; c < headers.size(); c++) {
 
-                        String value = record.get(originalColumn);
+                        String originalColumn = headers.get(c);
+                        String value = c < record.size() ? record.get(c) : null;
 
                         /*
-                         * sampleRows returns the original CSV column names,
-                         * so frontend/user sees exactly what was in file.
+                         * rowMap keys use the (de-duplicated) column names so the
+                         * frontend/user sees every column, including repeated ones.
                          */
                         rowMap.put(originalColumn, value);
 
@@ -137,7 +149,7 @@ public class CsvIngestionService {
 
                 List<FieldAnalysis> fields = new ArrayList<>();
 
-                for (String originalColumn : headers.keySet()) {
+                for (String originalColumn : headers) {
 
                     // Infer the column type from its actual values so numeric columns become
                     // measures (isMeasure) and everything else stays a dimension. Without this,
@@ -177,7 +189,7 @@ public class CsvIngestionService {
                         rowsInserted,
                         headers.size(),
                         fields,
-                        rowsInserted <= 1000 ? fetchUploadedRows(tableName, headers.keySet(), uploadId) : sampleRows,
+                        rowsInserted <= 1000 ? fetchUploadedRows(tableName, headers, uploadId) : sampleRows,
                         "CSV uploaded successfully. Rows inserted: " + rowsInserted
                 );
             }
@@ -190,7 +202,7 @@ public class CsvIngestionService {
         }
     }
 
-    private void createTableIfNotExists(String tableName, Set<String> headers) {
+    private void createTableIfNotExists(String tableName, List<String> headers) {
         StringBuilder ddl = new StringBuilder();
         ddl.append("CREATE TABLE IF NOT EXISTS ").append(quoteIdentifier(tableName)).append(" (");
         ddl.append("upload_id UUID NOT NULL REFERENCES data_uploads(id), ");
@@ -207,7 +219,7 @@ public class CsvIngestionService {
     private void insertRow(
             CSVRecord record,
             String tableName,
-            Set<String> headers,
+            List<String> headers,
             UUID uploadId
     ) {
 
@@ -219,14 +231,14 @@ public class CsvIngestionService {
 
         values.add(uploadId);
 
-        for (String header : headers) {
+        for (int c = 0; c < headers.size(); c++) {
 
             columns.append(", ")
-                    .append(quoteIdentifier(header));
+                    .append(quoteIdentifier(headers.get(c)));
 
             placeholders.append(", ?");
 
-            values.add(record.get(header));
+            values.add(c < record.size() ? record.get(c) : null);
         }
 
         String sql =
@@ -276,7 +288,7 @@ public class CsvIngestionService {
         }
     }
 
-    private List<Object> fetchUploadedRows(String tableName, Set<String> headers, UUID uploadId) {
+    private List<Object> fetchUploadedRows(String tableName, List<String> headers, UUID uploadId) {
         if (headers.isEmpty()) {
             return Collections.emptyList();
         }
@@ -305,6 +317,60 @@ public class CsvIngestionService {
             throw new IllegalArgumentException("CSV column name cannot be empty");
         }
         return com.example.dashboard_backend.util.SqlIdentifier.quote(identifier);
+    }
+
+    /** Strips a trailing file extension (e.g. "sales.csv" -> "sales") before deriving a table name. */
+    private String stripExtension(String name) {
+        if (name == null) {
+            return null;
+        }
+        int dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(0, dot) : name;
+    }
+
+    /** Removes a leading UTF-8 BOM (or its mis-decoded "ï»¿" form) from the first header name. */
+    private String stripBom(String s) {
+        if (s == null) {
+            return null;
+        }
+        while (s.startsWith("\uFEFF")) {
+            s = s.substring(1);
+        }
+        if (s.startsWith("\u00EF\u00BB\u00BF")) {
+            s = s.substring(3);
+        }
+        return s.trim();
+    }
+
+    /**
+     * Makes duplicate or blank CSV column names unique (preserving order) by suffixing
+     * " (2)", " (3)", ... and caps each name to 63 characters so it fits PostgreSQL's
+     * identifier limit. This preserves every column of exports that repeat header names
+     * (e.g. Jira's Comment / Labels / Watchers columns) instead of collapsing them.
+     */
+    private List<String> makeHeadersUnique(List<String> rawHeaders) {
+        final int maxLen = 63;
+        List<String> result = new ArrayList<>(rawHeaders.size());
+        Set<String> used = new java.util.HashSet<>();
+        for (String raw : rawHeaders) {
+            String base = (raw == null || raw.isBlank()) ? "column" : raw;
+            if (base.length() > maxLen) {
+                base = base.substring(0, maxLen);
+            }
+            String name = base;
+            int n = 1;
+            while (used.contains(name)) {
+                n++;
+                String suffix = " (" + n + ")";
+                String trimmedBase = base.length() + suffix.length() > maxLen
+                        ? base.substring(0, maxLen - suffix.length())
+                        : base;
+                name = trimmedBase + suffix;
+            }
+            used.add(name);
+            result.add(name);
+        }
+        return result;
     }
 
     /**

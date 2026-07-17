@@ -68,9 +68,12 @@ public class QueryController {
 
         if (measures != null && measures.isArray()) {
             for (JsonNode measure : measures) {
-                String field = quoteIdentifier(validateIdentifier(measure.get("field").asText(), "measure field"));
-                String aggregation = validateAggregation(measure.get("aggregation").asText());
-                String alias = quoteIdentifier(validateIdentifier(measure.get("alias").asText(), "measure alias"));
+                String field = quoteIdentifier(validateIdentifier(requiredText(measure, "field", "measure"), "measure field"));
+                String aggregation = validateAggregation(requiredText(measure, "aggregation", "measure"));
+                String aliasText = measure.hasNonNull("alias") && !measure.get("alias").asText().isBlank()
+                        ? measure.get("alias").asText()
+                        : requiredText(measure, "field", "measure");
+                String alias = quoteIdentifier(validateIdentifier(aliasText, "measure alias"));
 
                 String measureTarget = switch (aggregation) {
                     // Only cast strictly-numeric text to NUMERIC; empty/whitespace/non-numeric
@@ -123,14 +126,24 @@ public class QueryController {
             JsonNode rules = filters.get("rules");
 
             for (JsonNode rule : rules) {
-                String field = quoteIdentifier(validateIdentifier(rule.get("field").asText(), "filter field"));
-                String operator = cleanOperator(rule.get("operator").asText());
+                String field = quoteIdentifier(validateIdentifier(requiredText(rule, "field", "filter"), "filter field"));
+                String operator = cleanOperator(requiredText(rule, "operator", "filter"));
 
-                if (operator.equalsIgnoreCase("IN")) {
+                if (operator.equalsIgnoreCase("IS NULL") || operator.equalsIgnoreCase("IS NOT NULL")) {
+
+                    // Null-bucket drill filters carry no value and bind no parameter.
+                    whereParts.add(field + " " + operator);
+
+                } else if (operator.equalsIgnoreCase("IN")) {
+
+                    JsonNode values = rule.get("values");
+                    if (values == null || !values.isArray() || values.isEmpty()) {
+                        throw new IllegalArgumentException("IN filter on '" + rule.path("field").asText() + "' requires a non-empty 'values' array.");
+                    }
 
                     List<String> placeholders = new ArrayList<>();
 
-                    for (JsonNode value : rule.get("values")) {
+                    for (JsonNode value : values) {
                         placeholders.add("?");
                         params.add(valueOf(value));
                     }
@@ -170,8 +183,8 @@ public class QueryController {
             List<String> havingParts = new ArrayList<>();
 
             for (JsonNode rule : having) {
-                String measure = quoteIdentifier(validateIdentifier(rule.get("measure").asText(), "having measure"));
-                String operator = cleanOperator(rule.get("operator").asText());
+                String measure = quoteIdentifier(validateIdentifier(requiredText(rule, "measure", "having"), "having measure"));
+                String operator = cleanOperator(requiredText(rule, "operator", "having"));
                 JsonNode valueNode = rule.get("value");
 
                 havingParts.add(measure + " " + operator + " ?");
@@ -191,8 +204,8 @@ public class QueryController {
             List<String> orderParts = new ArrayList<>();
 
             for (JsonNode sort : sorting) {
-                String field = quoteIdentifier(validateIdentifier(sort.get("field").asText(), "sort field"));
-                String direction = validateDirection(sort.get("direction").asText());
+                String field = quoteIdentifier(validateIdentifier(requiredText(sort, "field", "sort"), "sort field"));
+                String direction = validateDirection(requiredText(sort, "direction", "sort"));
 
                 orderParts.add(field + " " + direction);
             }
@@ -210,6 +223,12 @@ public class QueryController {
             int top = pagination.has("top") ? pagination.get("top").asInt() : 100;
             int offset = pagination.has("offset") ? pagination.get("offset").asInt() : 0;
 
+            // Guard against negative/absurd pagination (previously surfaced as a 500 leaking the raw SQL).
+            if (top < 0 || offset < 0) {
+                throw new IllegalArgumentException("Pagination top/offset must not be negative");
+            }
+            top = Math.min(top, 10000);
+
             sql.append(" LIMIT ?");
             params.add(top);
 
@@ -221,7 +240,7 @@ public class QueryController {
     }
 
     /** Renders a generated query's SQL with its parameter values inlined, for human-readable preview only — never executed. */
-    private static String renderPreview(GeneratedQuery query) {
+    public static String renderPreview(GeneratedQuery query) {
         String sql = query.sql();
         // Only substitute real bind placeholders: a '?' that sits outside a single-quoted string
         // literal. Measure expressions embed regex literals like '^-?[0-9]+...' whose '?' must be
@@ -263,6 +282,16 @@ public class QueryController {
         return identifier;
     }
 
+    /** Returns the text of a required config field, throwing a 400 (IllegalArgumentException)
+     *  with a clear message when the key is absent, null, or blank — instead of an NPE/500. */
+    private static String requiredText(JsonNode node, String key, String what) {
+        JsonNode value = node == null ? null : node.get(key);
+        if (value == null || value.isNull() || value.asText().isBlank()) {
+            throw new IllegalArgumentException("Missing required '" + key + "' in " + what + " configuration.");
+        }
+        return value.asText();
+    }
+
     private static String quoteIdentifier(String identifier) {
         return com.example.dashboard_backend.util.SqlIdentifier.quote(identifier);
     }
@@ -293,7 +322,8 @@ public class QueryController {
 
     private static String cleanOperator(String operator) {
         return switch (operator.toUpperCase()) {
-            case "=", "!=", "<>", ">", "<", ">=", "<=", "IN", "BETWEEN", "LIKE" -> operator.toUpperCase();
+            case "=", "!=", "<>", ">", "<", ">=", "<=", "IN", "BETWEEN", "LIKE", "IS NULL", "IS NOT NULL" ->
+                operator.toUpperCase();
             default -> throw new IllegalArgumentException("Invalid operator: " + operator);
         };
     }
@@ -376,6 +406,9 @@ public class QueryController {
         }
 
         ObjectNode normalized = objectNode.deepCopy();
+        // Security: a FROM subquery is ONLY ever built server-side (below). Strip any client-supplied
+        // datasetFromSql so a caller can't splice arbitrary SQL into the FROM clause.
+        normalized.remove("datasetFromSql");
         String datasetToken = normalized.path("dataset").asText(null);
         DatasetMeta datasetMeta = resolveDatasetMeta(datasetToken);
         normalized.put("dataset", datasetMeta.tableName());
@@ -404,6 +437,17 @@ public class QueryController {
             remapFilters(normalized.with("filters").withArray("rules"), fieldMap);
             remapHaving(normalized.withArray("having"), fieldMap);
             remapSorting(normalized.withArray("sorting"), fieldMap);
+
+            // Version scoping: re-uploads of the same schema share ONE physical table (each upload is a
+            // distinct data version keyed by upload_id). Wrap the single table in a derived table filtered
+            // to this upload so charts/KPIs never silently aggregate across versions. The upload id is a
+            // validated UUID resolved server-side (never client input), so inlining it is safe.
+            if (datasetMeta.uploadId() != null) {
+                String scoped = "(SELECT * FROM " + quoteIdentifier(datasetMeta.tableName())
+                        + " WHERE upload_id = '" + datasetMeta.uploadId() + "'::uuid) AS "
+                        + quoteIdentifier(datasetMeta.tableName());
+                normalized.put("datasetFromSql", scoped);
+            }
         }
 
         return normalized;

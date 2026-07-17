@@ -38,8 +38,9 @@ export class ChartCompatibilityService {
     { name: 'tickets', type: 'number' }
   ];
 
-  /** The columns a user can pick from — demo dataset until a real uploaded table replaces it. */
-  columns: Column[] = [...this.demoColumns];
+  /** The columns a user can pick from — empty until a real uploaded dataset is activated, so the
+   *  builder shows no fields before anything is uploaded/selected. */
+  columns: Column[] = [];
 
   /** True once a real dataset (from the database) is active. */
   usingRealData = false;
@@ -68,11 +69,11 @@ export class ChartCompatibilityService {
 
   readonly vizTypes: VizDef[] = [
     { key: 'kpi', label: 'KPI', desc: 'A single headline metric', requirement: 'Exactly 1 number', icon: `<svg viewBox="0 0 24 24" fill="none"><path d="M4 16a8 8 0 0 1 16 0" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.3"/><path d="M12 16l5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16" r="1.8" fill="currentColor"/></svg>` },
-    { key: 'bar', label: 'BAR CHART', desc: 'Compare across categories', requirement: '1 category + 1 or more numbers', icon: `<svg viewBox="0 0 24 24" fill="none"><rect x="4" y="12" width="4.2" height="8" rx="1.3" fill="currentColor" opacity="0.4"/><rect x="9.9" y="6" width="4.2" height="14" rx="1.3" fill="currentColor"/><rect x="15.8" y="9" width="4.2" height="11" rx="1.3" fill="currentColor" opacity="0.4"/></svg>` },
-    { key: 'hbar', label: 'HORIZONTAL BAR', desc: 'Ranked categories', requirement: '1 category + 1 or more numbers', icon: `<svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4.5" width="15" height="4.2" rx="1.3" fill="currentColor"/><rect x="4" y="10.9" width="9" height="4.2" rx="1.3" fill="currentColor" opacity="0.4"/><rect x="4" y="17.3" width="12.5" height="4.2" rx="1.3" fill="currentColor" opacity="0.7"/></svg>` },
-    { key: 'stacked', label: 'STACKED BAR', desc: 'Stacked series per category', requirement: '1 category + 2 or more numbers', icon: `<svg viewBox="0 0 24 24" fill="none"><rect x="5" y="13" width="5" height="7" rx="1.2" fill="currentColor"/><rect x="5" y="7" width="5" height="5" rx="1.2" fill="currentColor" opacity="0.45"/><rect x="14" y="10" width="5" height="10" rx="1.2" fill="currentColor"/><rect x="14" y="4.5" width="5" height="4.5" rx="1.2" fill="currentColor" opacity="0.45"/></svg>` },
-    { key: 'line', label: 'LINE CHART', desc: 'Trends over a dimension', requirement: '1 category + 1 or more numbers', icon: `<svg viewBox="0 0 24 24" fill="none"><path d="M4 16l5-5 4 3 7-8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="11" r="1.7" fill="currentColor"/><circle cx="20" cy="6" r="1.7" fill="currentColor"/></svg>` },
-    { key: 'area', label: 'AREA', desc: 'Trend with filled volume', requirement: '1 category + 1 or more numbers', icon: `<svg viewBox="0 0 24 24" fill="none"><path d="M3 20V13l5-5 4 3 6-6 3 3v12H3z" fill="currentColor" opacity="0.2"/><path d="M3 13l5-5 4 3 6-6 3 3" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>` },
+    { key: 'bar', label: 'BAR CHART', desc: 'Compare across categories', requirement: '1 category + numbers, or 2 categories + 1 number', icon: `<svg viewBox="0 0 24 24" fill="none"><rect x="4" y="12" width="4.2" height="8" rx="1.3" fill="currentColor" opacity="0.4"/><rect x="9.9" y="6" width="4.2" height="14" rx="1.3" fill="currentColor"/><rect x="15.8" y="9" width="4.2" height="11" rx="1.3" fill="currentColor" opacity="0.4"/></svg>` },
+    { key: 'hbar', label: 'HORIZONTAL BAR', desc: 'Ranked categories', requirement: '1 category + numbers, or 2 categories + 1 number', icon: `<svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4.5" width="15" height="4.2" rx="1.3" fill="currentColor"/><rect x="4" y="10.9" width="9" height="4.2" rx="1.3" fill="currentColor" opacity="0.4"/><rect x="4" y="17.3" width="12.5" height="4.2" rx="1.3" fill="currentColor" opacity="0.7"/></svg>` },
+    { key: 'stacked', label: 'STACKED BAR', desc: 'Stacked series per category', requirement: '1 category + 2+ numbers, or 2 categories + 1 number', icon: `<svg viewBox="0 0 24 24" fill="none"><rect x="5" y="13" width="5" height="7" rx="1.2" fill="currentColor"/><rect x="5" y="7" width="5" height="5" rx="1.2" fill="currentColor" opacity="0.45"/><rect x="14" y="10" width="5" height="10" rx="1.2" fill="currentColor"/><rect x="14" y="4.5" width="5" height="4.5" rx="1.2" fill="currentColor" opacity="0.45"/></svg>` },
+    { key: 'line', label: 'LINE CHART', desc: 'Trends over a dimension', requirement: '1 category + numbers, or 2 categories + 1 number', icon: `<svg viewBox="0 0 24 24" fill="none"><path d="M4 16l5-5 4 3 7-8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="11" r="1.7" fill="currentColor"/><circle cx="20" cy="6" r="1.7" fill="currentColor"/></svg>` },
+    { key: 'area', label: 'AREA', desc: 'Trend with filled volume', requirement: '1 category + numbers, or 2 categories + 1 number', icon: `<svg viewBox="0 0 24 24" fill="none"><path d="M3 20V13l5-5 4 3 6-6 3 3v12H3z" fill="currentColor" opacity="0.2"/><path d="M3 13l5-5 4 3 6-6 3 3" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>` },
     { key: 'pie', label: 'PIE CHART', desc: 'Part-to-whole share', requirement: '1 category + exactly 1 number', icon: `<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" fill="currentColor" opacity="0.18"/><path d="M12 3.5a8.5 8.5 0 0 1 8.5 8.5H12V3.5z" fill="currentColor"/><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/></svg>` },
     { key: 'donut', label: 'DONUT', desc: 'Proportions with total', requirement: '1 category + exactly 1 number', icon: `<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7.5" stroke="currentColor" stroke-width="3.4" opacity="0.22"/><path d="M12 4.5a7.5 7.5 0 0 1 7.5 7.5" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/></svg>` },
     { key: 'polar', label: 'POLAR AREA', desc: 'Proportional segments', requirement: '1 category + exactly 1 number', icon: `<svg viewBox="0 0 24 24" fill="none"><path d="M12 12V4a8 8 0 0 1 5.7 2.3L12 12z" fill="currentColor"/><path d="M12 12l5.7-5.7A8 8 0 0 1 20 12h-8z" fill="currentColor" opacity="0.5"/><path d="M12 12h8a8 8 0 0 1-8 8v-8z" fill="currentColor" opacity="0.28"/><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.4" opacity="0.45"/></svg>` },
@@ -100,14 +101,16 @@ export class ChartCompatibilityService {
     if (total < 1) return false;
     switch (key) {
       case 'kpi': return num === 1 && dim === 0;
+      // A single category + measures, OR two categories (the 2nd becomes a grouped series) + 1 measure.
       case 'bar':
       case 'hbar':
       case 'line':
-      case 'area': return dim === 1 && num >= 1;
+      case 'area': return (dim === 1 && num >= 1) || (dim === 2 && num === 1);
       case 'pie':
       case 'donut':
       case 'polar': return dim === 1 && num === 1;
-      case 'stacked':
+      // Stacked: one category with several measures, OR two categories (2nd = stacked series) + 1 measure.
+      case 'stacked': return (dim === 1 && num >= 2) || (dim === 2 && num === 1);
       case 'radar': return dim === 1 && num >= 2;
       case 'scatter': return num === 2 && dim === 0;
       case 'table': return total >= 1;

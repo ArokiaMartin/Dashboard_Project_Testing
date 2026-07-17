@@ -6,8 +6,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.example.dashboard_backend.controller.QueryController;
 import jakarta.annotation.PostConstruct;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -17,6 +19,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @Service
+@DependsOn("ingestionMetadataRepository")
 public class DashboardService {
 
     private final JdbcTemplate jdbcTemplate;
@@ -98,6 +101,7 @@ public class DashboardService {
                 """);
     }
 
+    @Transactional
         public Map<String, Object> createDashboard(Map<String, Object> request) {
         UUID dashboardId = UUID.randomUUID();
         String userId = defaultIfBlank(asText(request.get("user_id")), "anonymous");
@@ -143,6 +147,7 @@ public class DashboardService {
         return getDashboardById(dashboardId);
         }
 
+        @Transactional
         public Map<String, Object> updateDashboard(UUID dashboardId, Map<String, Object> request) {
         Integer count = jdbcTemplate.queryForObject(
             "SELECT COUNT(*) FROM dashboards WHERE dashboard_id = ?",
@@ -151,7 +156,7 @@ public class DashboardService {
         );
 
         if (count == null || count == 0) {
-            throw new IllegalArgumentException("Dashboard not found: " + dashboardId);
+            throw new com.example.dashboard_backend.exception.ResourceNotFoundException("Dashboard not found: " + dashboardId);
         }
 
         String userId = defaultIfBlank(asText(request.get("user_id")), "anonymous");
@@ -231,7 +236,7 @@ public class DashboardService {
         );
 
         if (rows.isEmpty()) {
-            throw new IllegalArgumentException("Dashboard not found: " + dashboardId);
+            throw new com.example.dashboard_backend.exception.ResourceNotFoundException("Dashboard not found: " + dashboardId);
         }
 
         Map<String, Object> dashboard = new LinkedHashMap<>(rows.get(0));
@@ -246,7 +251,7 @@ public class DashboardService {
         );
 
         if (deleted == 0) {
-            throw new IllegalArgumentException("Dashboard not found: " + dashboardId);
+            throw new com.example.dashboard_backend.exception.ResourceNotFoundException("Dashboard not found: " + dashboardId);
         }
 
         Map<String, Object> response = new LinkedHashMap<>();
@@ -405,9 +410,12 @@ public class DashboardService {
         for (Map.Entry<?, ?> entry : rawConfig.entrySet()) {
             config.put(String.valueOf(entry.getKey()), entry.getValue());
         }
+        // Security: a FROM subquery is only ever built server-side (below); never trust a stored/injected one.
+        config.remove("datasetFromSql");
 
         String datasetToken = asText(config.get("dataset"));
         UUID uploadId = null;
+        String resolvedTable = null;
         if (datasetToken != null && !datasetToken.isBlank()) {
             try {
                 uploadId = UUID.fromString(datasetToken);
@@ -416,7 +424,8 @@ public class DashboardService {
                         uploadId
                 );
                 if (!datasetRows.isEmpty()) {
-                    config.put("dataset", String.valueOf(datasetRows.get(0).get("table_name")));
+                    resolvedTable = String.valueOf(datasetRows.get(0).get("table_name"));
+                    config.put("dataset", resolvedTable);
                 }
             } catch (IllegalArgumentException ignored) {
                 // Stored dataset token is a table-name path; keep as-is.
@@ -436,6 +445,15 @@ public class DashboardService {
                 fieldMap.put(normalizedName, normalizedName);
             }
             remapConfigFieldNames(config, fieldMap);
+        }
+
+        // Version scoping: hydrate only THIS upload's rows (re-uploads share one physical table), so a
+        // widget never silently aggregates across data versions. upload id is a validated UUID, safe to inline.
+        if (uploadId != null && resolvedTable != null) {
+            config.put("datasetFromSql", "(SELECT * FROM "
+                    + com.example.dashboard_backend.util.SqlIdentifier.quote(resolvedTable)
+                    + " WHERE upload_id = '" + uploadId + "'::uuid) AS "
+                    + com.example.dashboard_backend.util.SqlIdentifier.quote(resolvedTable));
         }
 
         return config;

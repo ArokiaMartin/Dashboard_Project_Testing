@@ -35,7 +35,7 @@ interface UploadStage {
 
         <div class="upload-card">
           <input #schemaInput type="file" accept=".json" hidden (change)="onSchemaSelect($event)" />
-          <div class="drop" [class.over]="schemaOver" [class.busy]="schemaUploading"
+          <div class="drop" [class.over]="schemaOver" [class.busy]="schemaAnalyzing"
                (click)="schemaInput.click()"
                (dragover)="onDragOver($event, 'schema')"
                (dragleave)="schemaOver=false"
@@ -44,16 +44,16 @@ interface UploadStage {
               <path d="M12 3v12M12 15l-4-4m4 4l4-4"/>
               <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>
             </svg>
-            <p class="drop-title" *ngIf="!schemaUploading">Upload Schema File</p>
-            <p class="drop-title" *ngIf="schemaUploading">Analyzing {{ schemaFile?.name }}…</p>
-            <p class="drop-sub">JSON schema file · Defines field names, types, and validation</p>
+            <p class="drop-title" *ngIf="!schemaAnalyzing">Upload Schema File</p>
+            <p class="drop-title" *ngIf="schemaAnalyzing">Analyzing {{ schemaFile?.name }}…</p>
+            <p class="drop-sub">JSON schema file · Analyzed automatically on upload</p>
             <button class="btn-primary" type="button" (click)="$event.stopPropagation(); schemaInput.click()">
               Choose File
             </button>
           </div>
 
           <!-- Schema Preview -->
-          <div *ngIf="schemaFile && !schemaUploading" class="file-preview">
+          <div *ngIf="schemaFile && !schemaAnalyzing" class="file-preview">
             <div class="preview-item">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2">
                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
@@ -82,6 +82,15 @@ interface UploadStage {
             {{ schemaError }}
           </div>
         </div>
+
+        <!-- Skip schema for CSV/Excel: no JSON schema required -->
+        <div class="schemaless-option">
+          <div class="schemaless-divider"><span>or</span></div>
+          <button class="btn-outline" type="button" (click)="startSchemaless()">
+            Skip this step — upload CSV / Excel directly →
+          </button>
+          <p class="schemaless-hint">For CSV or Excel files, columns and types are auto-detected. No JSON schema required.</p>
+        </div>
       </div>
 
       <!-- Stage 2: Upload Data -->
@@ -93,15 +102,16 @@ interface UploadStage {
             <div class="progress-step active">2</div>
           </div>
           <h2>Step 2: Upload Data File</h2>
-          <p>Upload your data file. It will be validated against the schema and inserted into the created table.</p>
+          <p *ngIf="!schemaless">Upload your data file. It will be validated against the schema and inserted into the created table.</p>
+          <p *ngIf="schemaless">Upload your CSV or Excel file. Columns and types are auto-detected — no schema needed.</p>
           <div class="schema-info">
-            <strong>Schema:</strong> {{ schemaName }}
+            <strong>{{ schemaless ? 'Mode:' : 'Schema:' }}</strong> {{ schemaName }}
           </div>
         </div>
 
         <div class="upload-card">
           <input #dataInput type="file" accept=".json,.csv,.xlsx,.xls" hidden (change)="onDataSelect($event)" />
-          <div class="drop" [class.over]="dataOver" [class.busy]="dataUploading"
+          <div class="drop" [class.over]="dataOver" [class.busy]="dataAnalyzing"
                (click)="dataInput.click()"
                (dragover)="onDragOver($event, 'data')"
                (dragleave)="dataOver=false"
@@ -110,8 +120,8 @@ interface UploadStage {
               <path d="M12 3v12M12 15l-4-4m4 4l4-4"/>
               <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>
             </svg>
-            <p class="drop-title" *ngIf="!dataUploading">Upload Data File</p>
-            <p class="drop-title" *ngIf="dataUploading">Ingesting {{ dataFile?.name }}…</p>
+            <p class="drop-title" *ngIf="!dataAnalyzing">Upload Data File</p>
+            <p class="drop-title" *ngIf="dataAnalyzing">Ingesting {{ dataFile?.name }}…</p>
             <p class="drop-sub">JSON, CSV, or Excel (.xlsx) file · Must match the schema structure</p>
             <button class="btn-primary" type="button" (click)="$event.stopPropagation(); dataInput.click()">
               Choose File
@@ -119,7 +129,7 @@ interface UploadStage {
           </div>
 
           <!-- Data Preview -->
-          <div *ngIf="dataFile && !dataUploading" class="file-preview">
+          <div *ngIf="dataFile && !dataAnalyzing" class="file-preview">
             <div class="preview-item">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2">
                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
@@ -398,6 +408,57 @@ interface UploadStage {
       color: #1d4ed8;
     }
 
+    .schemaless-option {
+      text-align: center;
+      margin-top: 1rem;
+    }
+
+    .schemaless-divider {
+      position: relative;
+      margin: 0.5rem 0 1.25rem;
+      color: #9ca3af;
+      font-size: 0.85rem;
+    }
+
+    .schemaless-divider::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: #e5e7eb;
+    }
+
+    .schemaless-divider span {
+      position: relative;
+      background: #f9fafb;
+      padding: 0 0.75rem;
+    }
+
+    .btn-outline {
+      padding: 0.75rem 1.5rem;
+      border: 1px solid #2563eb;
+      border-radius: 6px;
+      background: white;
+      color: #2563eb;
+      font-size: 0.95rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      width: 100%;
+    }
+
+    .btn-outline:hover {
+      background: #eff6ff;
+    }
+
+    .schemaless-hint {
+      margin: 0.75rem 0 0;
+      font-size: 0.8rem;
+      color: #6b7280;
+    }
+
     .success-box {
       text-align: center;
       padding: 3rem 2rem;
@@ -472,20 +533,20 @@ interface UploadStage {
 export class SchemaDataUploadComponent implements OnInit, OnDestroy {
   // Stage control
   stage: 'schema' | 'data' | 'complete' = 'schema';
+  // Schemaless plugin mode: CSV/Excel auto-detect, no JSON schema required.
+  schemaless = false;
 
   // Schema upload
   schemaFile: File | null = null;
   schemaName: string = '';
   schemaId: string = '';
   schemaOver = false;
-  schemaUploading = false;
   schemaAnalyzing = false;
   schemaError = '';
 
   // Data upload
   dataFile: File | null = null;
   dataOver = false;
-  dataUploading = false;
   dataAnalyzing = false;
   dataError = '';
 
@@ -535,7 +596,7 @@ export class SchemaDataUploadComponent implements OnInit, OnDestroy {
 
     const files = event.dataTransfer?.files;
     if (files && files.length > 0) {
-      if (type === 'schema') this.schemaFile = files[0];
+      if (type === 'schema') this.handleSchemaFile(files[0]);
       else this.dataFile = files[0];
     }
   }
@@ -543,8 +604,25 @@ export class SchemaDataUploadComponent implements OnInit, OnDestroy {
   onSchemaSelect(event: Event): void {
     const target = event.target as HTMLInputElement;
     if (target.files && target.files.length > 0) {
-      this.schemaFile = target.files[0];
+      this.handleSchemaFile(target.files[0]);
     }
+  }
+
+  /**
+   * Handles a file dropped/selected on the schema step. JSON files are analysed
+   * automatically (no button click). CSV/Excel files need no schema — they go straight
+   * to the data-upload step (schemaless mode).
+   */
+  private handleSchemaFile(file: File): void {
+    const name = file.name.toLowerCase();
+    const isTabular = name.endsWith('.csv') || name.endsWith('.xlsx') || name.endsWith('.xls');
+    if (isTabular) {
+      this.startSchemaless();
+      this.dataFile = file;
+      return;
+    }
+    this.schemaFile = file;
+    this.analyzeSchema();
   }
 
   onDataSelect(event: Event): void {
@@ -603,10 +681,20 @@ export class SchemaDataUploadComponent implements OnInit, OnDestroy {
     this.schemaError = '';
   }
 
+  /** Skips the schema step for CSV/Excel and goes straight to data upload (schemaless mode). */
+  startSchemaless(): void {
+    this.schemaless = true;
+    this.schemaName = 'Auto-detected (CSV/Excel)';
+    this.schemaError = '';
+    this.stage = 'data';
+  }
+
   // === DATA UPLOAD ===
 
   uploadData(): void {
-    if (!this.dataFile || !this.schemaId) return;
+    if (!this.dataFile) return;
+    if (this.schemaless) { this.uploadSchemaless(); return; }
+    if (!this.schemaId) return;
 
     this.dataAnalyzing = true;
     this.dataError = '';
@@ -650,6 +738,34 @@ export class SchemaDataUploadComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * Schemaless plugin path: for CSV/Excel we let the backend auto-detect columns and types
+   * via the shared UploadService (POST /api/upload), so no JSON schema is required. This does
+   * not touch the existing schema-based ingestion flow.
+   */
+  private async uploadSchemaless(): Promise<void> {
+    if (!this.dataFile) return;
+    this.dataAnalyzing = true;
+    this.dataError = '';
+    try {
+      const tables = await this.uploadService.parse(this.dataFile);
+      const localRows = tables.reduce((total, t) => total + (t.rows?.length || 0), 0);
+      // Prefer the backend's authoritative count (handles quoted multi-line CSV cells).
+      const rows = this.uploadService.lastRowCount || localRows;
+      this.ingestionResult = {
+        rowsInserted: rows,
+        tableName: this.uploadService.fileName || this.dataFile.name
+      };
+      this.message = `Successfully ingested ${rows} row(s) from "${this.dataFile.name}" with auto-detected columns.`;
+      this.active.refreshAfterUpload(this.dataFile.name);
+      this.stage = 'complete';
+    } catch (err: any) {
+      this.dataError = err?.message || 'Failed to ingest data.';
+    } finally {
+      this.dataAnalyzing = false;
+    }
+  }
+
   private checkAndIngestData(data: any): void {
     this.checkingDuplicate = true;
     const checksum = this.versioningService.calculateChecksum(data);
@@ -660,9 +776,12 @@ export class SchemaDataUploadComponent implements OnInit, OnDestroy {
       (result) => {
         this.checkingDuplicate = false;
         if (result.isDuplicate && result.existingVersion) {
+          // Identical data already exists — do NOT re-ingest it. Reuse the existing version,
+          // record a lightweight duplicate marker, and complete the flow.
+          const existing = result.existingVersion;
           this.isDuplicate = true;
-          this.duplicateMessage = `This data matches version ${result.existingVersion.versionNumber} (${result.existingVersion.uploadedAt.split('T')[0]}). Using existing version.`;
-          this.sendIngest(data, checksum, result.existingVersion.versionId);
+          this.duplicateMessage = `This data matches version ${existing.versionNumber} (${existing.uploadedAt.split('T')[0]}). Reusing the existing version — data was not re-ingested.`;
+          this.reuseExistingVersion(data, checksum, existing);
         } else {
           this.sendIngest(data, checksum);
         }
@@ -686,6 +805,39 @@ export class SchemaDataUploadComponent implements OnInit, OnDestroy {
         console.error('Error loading versions:', error);
       }
     );
+  }
+
+  /**
+   * Handles a detected duplicate upload: reuses the existing version's table instead of
+   * re-ingesting identical data, registers a duplicate marker version (metadata only), and
+   * completes the flow.
+   */
+  private reuseExistingVersion(data: any, checksum: string, existing: DataVersion): void {
+    this.dataAnalyzing = false;
+    this.ingestionResult = {
+      rowsInserted: existing.rowCount ?? (Array.isArray(data) ? data.length : 0),
+      tableName: existing.tableName
+    };
+    this.message = this.duplicateMessage;
+    this.stage = 'complete';
+
+    if (this.dataFile) {
+      this.versioningService.registerVersion(
+        this.schemaId,
+        this.schemaName,
+        existing.tableName,
+        checksum,
+        Array.isArray(data) ? data.length : (data.length || 0),
+        this.dataFile.name,
+        true,
+        existing.versionId
+      ).pipe(takeUntil(this.destroy$)).subscribe(
+        () => this.loadVersionsForSchema(this.schemaId),
+        (error) => console.error('Error registering duplicate version:', error)
+      );
+    }
+
+    this.active.refreshAfterUpload(this.dataFile?.name ?? this.schemaName);
   }
 
   /** Sends the parsed row array to the backend for schema-based ingestion (versioning is handled server-side). */
@@ -785,6 +937,7 @@ export class SchemaDataUploadComponent implements OnInit, OnDestroy {
 
   resetAll(): void {
     this.stage = 'schema';
+    this.schemaless = false;
     this.schemaFile = null;
     this.schemaName = '';
     this.schemaId = '';

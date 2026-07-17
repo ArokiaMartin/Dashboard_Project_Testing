@@ -8,6 +8,7 @@ import { UploadService } from '@core/services/upload.service';
 import { LayoutService } from '@core/services/layout.service';
 import { ActiveDatasetService } from '@core/services/active-dataset.service';
 import { Subscription } from 'rxjs';
+import { skip } from 'rxjs/operators';
 
 interface Dataset {
   id: string;
@@ -61,7 +62,7 @@ interface ChildTable {
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             {{ uploading ? 'Uploading…' : 'Upload' }}
           </button>
-          <button class="btn ghost" (click)="loadDatasets()">
+          <button class="btn ghost" (click)="refreshDatasets()">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 0 0 4.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 0 1-15.357-2m15.357 2H15"/></svg>
             Refresh
           </button>
@@ -373,8 +374,10 @@ export class DataExplorerComponent implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.active.ensureLoaded().then(() => this.loadDatasets());
-    // Re-scope the page whenever the globally-active dataset changes.
-    this.schemaSub = this.active.activeKey$.subscribe(() => this.loadDatasets());
+    // React only to *subsequent* active-dataset changes. `activeKey$` is a BehaviorSubject that
+    // emits its current value on subscribe, so skip(1) avoids a redundant second load on init
+    // (the ensureLoaded() call above already performs the initial load).
+    this.schemaSub = this.active.activeKey$.pipe(skip(1)).subscribe(() => this.loadDatasets());
   }
 
   ngOnDestroy() {
@@ -395,32 +398,35 @@ export class DataExplorerComponent implements OnInit, OnDestroy {
   }
 
   loadDatasets() {
-    this.loading = true;
     const prevId = this.datasets[this.selected]?.id;
-    this.http.get<Dataset[]>(`${environment.apiUrl}/datasets`).subscribe({
-      next: (data) => {
-        // Show every uploaded dataset — one row per dataset family (its newest version). Older
-        // versions of the same dataset are collapsed into that row to keep the list clean.
-        const all = data || [];
-        const seen = new Set<string>();
-        const unique: Dataset[] = [];
-        for (const d of all) {
-          const key = this.active.familyKeyOf(d as any);
-          if (!seen.has(key)) { seen.add(key); unique.push(d); }
-        }
-        this.datasets = unique;
-        this.loading = false;
-        if (this.datasets.length > 0) {
-          // Keep the dataset the user was viewing; otherwise fall back to the active one, then the first.
-          let idx = prevId ? this.datasets.findIndex((d) => d.id === prevId) : -1;
-          if (idx < 0) idx = this.datasets.findIndex((d) => this.active.datasetMatchesActive(d as any));
-          this.select(idx < 0 ? 0 : idx);
-        } else {
-          this.columns = []; this.columnTypes = []; this.rows = []; this.visibleRows = [];
-        }
-      },
-      error: () => { this.loading = false; }
-    });
+    // Reuse the dataset list already loaded by ActiveDatasetService (via ensureLoaded/reload)
+    // instead of issuing a second, identical GET /datasets from this page.
+    const data = this.active.getDatasets() as Dataset[];
+    // Only show datasets belonging to the active dataset family. Until the user uploads or
+    // picks a dataset (clean slate), nothing is shown here.
+    const all = (data || []).filter((d) => this.active.datasetMatchesActive(d as any));
+    const seen = new Set<string>();
+    const unique: Dataset[] = [];
+    for (const d of all) {
+      const key = this.active.familyKeyOf(d as any);
+      if (!seen.has(key)) { seen.add(key); unique.push(d); }
+    }
+    this.datasets = unique;
+    this.loading = false;
+    if (this.datasets.length > 0) {
+      // Keep the dataset the user was viewing; otherwise show the first of the active family.
+      let idx = prevId ? this.datasets.findIndex((d) => d.id === prevId) : -1;
+      this.select(idx < 0 ? 0 : idx);
+    } else {
+      this.selected = 0;
+      this.columns = []; this.columnTypes = []; this.rows = []; this.visibleRows = [];
+    }
+  }
+
+  /** Forces a fresh fetch from the server (Refresh button, after delete), then re-renders. */
+  refreshDatasets() {
+    this.loading = true;
+    this.active.reload().then(() => this.loadDatasets()).catch(() => { this.loading = false; });
   }
 
   /** User picked a dataset from the selector: show it, and make it the app's active dataset so the
@@ -511,7 +517,7 @@ export class DataExplorerComponent implements OnInit, OnDestroy {
       next: () => {
         // Reload so the previously uploaded dataset (if any) becomes the current one.
         this.columns = []; this.columnTypes = []; this.rows = []; this.visibleRows = [];
-        this.loadDatasets();
+        this.refreshDatasets();
       },
       error: () => { this.uploadError = `Could not delete "${ds.original_filename}". Please try again.`; }
     });

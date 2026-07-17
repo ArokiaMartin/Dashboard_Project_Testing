@@ -175,7 +175,10 @@ public class DataVersioningController {
 
             logger.info("Deleting version: {}", versionId);
 
-            versioningService.deleteVersion(versionId);
+            boolean deleted = versioningService.deleteVersion(versionId);
+            if (!deleted) {
+                return ResponseEntity.notFound().build();
+            }
 
             Map<String, String> response = new HashMap<>();
             response.put("message", "Version deleted successfully");

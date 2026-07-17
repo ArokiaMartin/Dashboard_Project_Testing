@@ -361,27 +361,38 @@ public class DatasetController {
         }
         String tableName = (String) meta.get(0).get("table_name");
 
-        // Valid columns and which of them are numeric (safe to CAST + aggregate).
+        // Valid columns and which of them are numeric (safe to CAST + aggregate). The physical table
+        // columns use the NORMALIZED field name, so map each display field_name -> normalized column.
         List<Map<String, Object>> fm = jdbcTemplate.queryForList(
-            "SELECT field_name, field_type FROM field_metadata WHERE upload_id = ?", uploadId);
+            "SELECT field_name, normalized_field_name, field_type FROM field_metadata WHERE upload_id = ?", uploadId);
         Set<String> validColumns = new HashSet<>();
         Set<String> numericColumns = new HashSet<>();
+        Map<String, String> normalizedOf = new HashMap<>();
         for (Map<String, Object> f : fm) {
             String name = (String) f.get("field_name");
+            String normalized = (String) f.get("normalized_field_name");
+            if (normalized == null || normalized.isBlank()) normalized = name;
             validColumns.add(name);
-            if ("numeric".equals(f.get("field_type"))) numericColumns.add(name);
+            validColumns.add(normalized);
+            normalizedOf.put(name, normalized);
+            normalizedOf.put(normalized, normalized);
+            if ("numeric".equals(f.get("field_type"))) {
+                numericColumns.add(name);
+                numericColumns.add(normalized);
+            }
         }
 
         String dimension = (String) body.get("dimension");
         if (dimension != null && !validColumns.contains(dimension)) {
             throw new IllegalArgumentException("Unknown dimension: " + dimension);
         }
+        String dimensionColumn = dimension == null ? null : normalizedOf.getOrDefault(dimension, dimension);
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> measures = (List<Map<String, Object>>) body.getOrDefault("measures", List.of());
 
         List<String> selectParts = new ArrayList<>();
-        if (dimension != null) selectParts.add(quoteIdentifier(dimension));
+        if (dimension != null) selectParts.add(quoteIdentifier(dimensionColumn) + " AS " + quoteIdentifier(dimension));
 
         String firstMeasureExpr = null;
         for (Map<String, Object> m : measures) {
@@ -393,7 +404,7 @@ public class DatasetController {
             if (!Set.of("SUM", "AVG", "MIN", "MAX", "COUNT").contains(agg)) {
                 throw new IllegalArgumentException("Invalid aggregation: " + agg);
             }
-            String col = quoteIdentifier(field);
+            String col = quoteIdentifier(normalizedOf.getOrDefault(field, field));
             // Only cast strictly-numeric text; empty/whitespace/non-numeric values become NULL
             // (ignored by the aggregate) instead of failing the whole query.
             String expr = agg + "(CASE WHEN trim(" + col + "::text) ~ '^-?[0-9]+(\\.[0-9]+)?$' "
@@ -415,12 +426,12 @@ public class DatasetController {
         List<Object> filterValues = (List<Object>) body.get("filterValues");
         if (dimension != null && filterValues != null && !filterValues.isEmpty()) {
             String placeholders = filterValues.stream().map(v -> "?").collect(Collectors.joining(", "));
-            sql.append(" AND ").append(quoteIdentifier(dimension)).append(" IN (").append(placeholders).append(")");
+            sql.append(" AND ").append(quoteIdentifier(dimensionColumn)).append(" IN (").append(placeholders).append(")");
             params.addAll(filterValues);
         }
 
         if (dimension != null) {
-            sql.append(" GROUP BY ").append(quoteIdentifier(dimension));
+            sql.append(" GROUP BY ").append(quoteIdentifier(dimensionColumn));
         }
 
         // Top-N ordering by the first measure, when requested.
@@ -453,9 +464,28 @@ public class DatasetController {
 
         String tableName = (String) meta.get(0).get("table_name");
 
+        // Nested-JSON datasets fan out into child tables (<root>_items, <root>_payments, ...). Discover
+        // them so this upload's rows are purged from them too, and so they're dropped alongside the root
+        // instead of being orphaned.
+        List<String> childTables = jdbcTemplate.queryForList(
+                "SELECT table_name FROM information_schema.columns " +
+                "WHERE table_schema = current_schema() AND column_name = 'parent_row_id'",
+                String.class).stream()
+                .filter(t -> t.startsWith(tableName + "_"))
+                .distinct()
+                .sorted(Comparator.comparingInt(String::length).reversed())   // deepest first
+                .collect(Collectors.toList());
+
         // A physical table can be shared by multiple data versions of the same schema (each version is
-        // a separate data_uploads row / upload_id). Only remove this version's rows here, and drop the
-        // table itself solely when no other upload still references it.
+        // a separate data_uploads row / upload_id). Only remove this version's rows here (children first),
+        // and drop the tables solely when no other upload still references the root.
+        for (String child : childTables) {
+            try {
+                jdbcTemplate.update("DELETE FROM " + quoteIdentifier(child) + " WHERE upload_id = ?", uploadId);
+            } catch (Exception ex) {
+                log.warn("Failed to delete rows for upload {} from child table '{}'", uploadId, child, ex);
+            }
+        }
         try {
             jdbcTemplate.update(
                 "DELETE FROM " + quoteIdentifier(tableName) + " WHERE upload_id = ?",
@@ -470,6 +500,13 @@ public class DatasetController {
             Integer.class, tableName, uploadId
         );
         if (otherUploads == null || otherUploads == 0) {
+            for (String child : childTables) {
+                try {
+                    jdbcTemplate.execute("DROP TABLE IF EXISTS " + quoteIdentifier(child));
+                } catch (Exception ex) {
+                    log.warn("Failed to drop child table '{}' for upload {}", child, uploadId, ex);
+                }
+            }
             try {
                 jdbcTemplate.execute("DROP TABLE IF EXISTS " + quoteIdentifier(tableName));
             } catch (Exception ex) {

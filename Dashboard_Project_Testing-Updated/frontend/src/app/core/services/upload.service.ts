@@ -17,6 +17,8 @@ export class UploadService {
   tables: DataTable[] = [];
   fileName = '';
   lastChecksum = '';
+  /** Authoritative row count reported by the backend on the most recent upload (handles quoted multi-line CSV cells correctly). */
+  lastRowCount = 0;
 
   constructor(
     private http: HttpClient,
@@ -52,12 +54,17 @@ export class UploadService {
     const ext0 = file.name.split('.').pop()?.toLowerCase() ?? '';
     try {
       const analysis = await this.uploadToBackend(file);
+      // Capture the backend's authoritative row count (correctly handles quoted multi-line cells).
+      this.lastRowCount = analysis?.rowCount ?? 0;
       // JSON is only staged by /upload — commit it so it becomes a real dataset (CSV is already saved).
       if (ext0 === 'json' && analysis?.uploadToken) {
         await this.ingestStagedUpload(analysis.uploadToken, file);
       }
     } catch (error) {
       console.error('Failed to upload to backend:', error);
+      // Don't silently continue — a failed upload/ingest means nothing was persisted server-side.
+      // Surface it so the caller can inform the user instead of showing unsaved local-only data.
+      throw new Error('Failed to upload the file to the server. Please try again.');
     }
     const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
     let tables: DataTable[];
@@ -78,7 +85,7 @@ export class UploadService {
     return tables;
   }
 
-  reset(): void { this.tables = []; this.fileName = ''; this.lastChecksum = ''; }
+  reset(): void { this.tables = []; this.fileName = ''; this.lastChecksum = ''; this.lastRowCount = 0; }
 
   /**
    * Get checksum for current loaded tables

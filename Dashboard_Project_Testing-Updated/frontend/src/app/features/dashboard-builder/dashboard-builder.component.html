@@ -76,7 +76,12 @@
 
           <div class="rail-head">AVAILABLE COLUMNS</div>
           <div class="rail-hint">Pick 2–3 columns to see compatible charts.</div>
-          <button class="col-item" *ngFor="let c of compat.columns"
+          <div class="col-search" *ngIf="compat.columns.length">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" placeholder="Search columns…" [value]="columnSearch" (input)="onColumnSearch($event)" />
+            <button class="col-search-x" *ngIf="columnSearch" (click)="columnSearch = ''" title="Clear">✕</button>
+          </div>
+          <button class="col-item" *ngFor="let c of filteredColumns()"
                   [class.active]="isSelected(c)"
                   [class.disabled]="colDisabled(c)"
                   [disabled]="colDisabled(c)"
@@ -88,21 +93,22 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
             </span>
           </button>
+          <div class="col-noresults" *ngIf="compat.columns.length && !filteredColumns().length">No columns match "{{ columnSearch }}".</div>
         </aside>
         <div class="rail-resizer" *ngIf="!viewMode" (mousedown)="startDrag($event)" (dblclick)="toggleRail()"><span class="grip"></span></div>
 
         <!-- CENTER -->
         <section class="center">
-          <app-dashboard-grid *ngIf="committedWidgets.length"
-            [widgets]="committedWidgets" [editingId]="editingWidgetId" [readOnly]="viewMode"
+          <app-dashboard-grid *ngIf="visibleWidgets.length"
+            [widgets]="visibleWidgets" [editingId]="editingWidgetId" [readOnly]="viewMode"
             (remove)="removeWidget($event)" (edit)="editWidget($event)" (layoutChange)="onLayoutChange()">
           </app-dashboard-grid>
-          <div class="view-empty" *ngIf="viewMode && !committedWidgets.length">
+          <div class="view-empty" *ngIf="viewMode && !visibleWidgets.length">
             <p>This dashboard has no widgets yet.</p>
             <button class="vh-edit" (click)="editThisDashboard()">Add widgets</button>
           </div>
-          <div class="canvas-divider" *ngIf="!viewMode && committedWidgets.length">
-            <span>{{ committedWidgets.length }} widget{{ committedWidgets.length > 1 ? 's' : '' }} on canvas — drag a widget's header to move it, or its corner to resize · build another below</span>
+          <div class="canvas-divider" *ngIf="!viewMode && visibleWidgets.length">
+            <span>{{ visibleWidgets.length }} widget{{ visibleWidgets.length > 1 ? 's' : '' }} on canvas — drag a widget's header to move it, or its corner to resize · build another below</span>
           </div>
 
           <!-- Stepper -->
@@ -209,20 +215,6 @@
               </div>
             </div>
 
-            <!-- drill-down path (optional): extra dimensions to click-drill into on the finished widget -->
-            <div class="drill-block" *ngIf="showDrillPicker()">
-              <div class="section-label">DRILL-DOWN PATH
-                <span class="drill-hint">optional — click to drill from {{ drillFromLabel() }} into these, in order</span>
-              </div>
-              <div class="drill-chips">
-                <button class="d-chip" *ngFor="let c of drillCandidates()"
-                        [class.active]="isDrillSelected(c)" (click)="toggleDrill(c)">
-                  <span class="d-order" *ngIf="drillOrder(c) as n">{{ n }}</span>
-                  {{ c.name }}
-                </button>
-              </div>
-            </div>
-
             <!-- preview -->
             <div class="preview">
               <div class="ph" *ngIf="!hasColumns()">
@@ -259,7 +251,7 @@
       <div class="save-modal-overlay" *ngIf="showSaveModal" (click)="closeSaveModal()">
         <div class="save-modal" (click)="$event.stopPropagation()">
           <div class="sm-head">
-            <h3>Save {{ committedWidgets.length > 1 ? committedWidgets.length + ' widgets' : 'widget' }}</h3>
+            <h3>Save {{ visibleWidgets.length > 1 ? visibleWidgets.length + ' widgets' : 'widget' }}</h3>
             <button class="sm-close" (click)="closeSaveModal()" [disabled]="saveBusy" title="Close">&#10005;</button>
           </div>
 

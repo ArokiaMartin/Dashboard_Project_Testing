@@ -25,12 +25,14 @@ export interface DatasetFamily {
 /**
  * Holds the single "active dataset" (scoped by dataset family) shared across every page:
  * Uploaded Data, Dashboard Builder and My Dashboards all react to it.
- * The selection is persisted in localStorage so it survives navigation and reloads.
+ * The selection is session-scoped: it is kept in sessionStorage so it survives reloads and
+ * navigation within the current browser session, but every NEW session starts with a clean
+ * slate (nothing selected) so pages stay empty until the user uploads or picks a dataset.
  */
 @Injectable({ providedIn: 'root' })
 export class ActiveDatasetService {
-  // v3: scoping now keys off a normalized dataset-family name instead of a raw schema_id, so
-  // re-uploads and legacy uploads of the same dataset stay linked. Bumping the key resets stale state.
+  // Session-scoped key: sessionStorage is per-tab/session, so a brand-new session begins with a
+  // clean slate while reloads within the session keep the just-uploaded/selected dataset.
   private readonly STORAGE_KEY = 'activeDatasetKey_v3';
 
   private datasets: DatasetSummary[] = [];
@@ -102,7 +104,7 @@ export class ActiveDatasetService {
     }
   }
 
-  /** Sets the active dataset family and persists it. */
+  /** Sets the active dataset family and persists it for the current session. */
   setActiveKey(key: string): void {
     const next = key || NO_ACTIVE_DATASET;
     this.writeStored(next);
@@ -247,7 +249,7 @@ export class ActiveDatasetService {
 
   private readStored(): string {
     try {
-      return localStorage.getItem(this.STORAGE_KEY) || NO_ACTIVE_DATASET;
+      return sessionStorage.getItem(this.STORAGE_KEY) || NO_ACTIVE_DATASET;
     } catch {
       return NO_ACTIVE_DATASET;
     }
@@ -256,9 +258,9 @@ export class ActiveDatasetService {
   private writeStored(value: string): void {
     try {
       if (value === NO_ACTIVE_DATASET) {
-        localStorage.removeItem(this.STORAGE_KEY);
+        sessionStorage.removeItem(this.STORAGE_KEY);
       } else {
-        localStorage.setItem(this.STORAGE_KEY, value);
+        sessionStorage.setItem(this.STORAGE_KEY, value);
       }
     } catch {
       /* ignore storage failures (private mode, etc.) */

@@ -2,7 +2,7 @@ import { Component, HostListener, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { DashboardRecord, DashboardWidgetRecord, DashboardService, SaveDashboardRequest } from '@core/services/dashboard.service';
-import { ActiveDatasetService } from '@core/services/active-dataset.service';
+import { ActiveDatasetService, DatasetFamily, NO_ACTIVE_DATASET } from '@core/services/active-dataset.service';
 import { Subscription } from 'rxjs';
 
 interface DashItem {
@@ -29,6 +29,16 @@ interface DashItem {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Create Dashboard
         </button>
+      </div>
+
+      <!-- Dataset picker: choose which dataset's dashboards to show (mirrors the Dashboard Builder). -->
+      <div class="ds-bar" *ngIf="datasetFamilies.length">
+        <label class="ds-label">Dataset</label>
+        <select class="ds-select" [value]="activeDatasetKey" (change)="onDatasetPick($any($event.target).value)">
+          <option [value]="noneKey">All dashboards</option>
+          <option *ngFor="let f of datasetFamilies" [value]="f.key">{{ f.label }}</option>
+        </select>
+        <span class="ds-hint" *ngIf="activeDatasetKey === noneKey">Showing all dashboards across every dataset.</span>
       </div>
 
       <div class="toolbar" *ngIf="!loading && !error && (totalDashboards > 0 || isSearching)">
@@ -108,6 +118,11 @@ interface DashItem {
     .btn.primary:hover { background: #1d4ed8; }
 
     .toolbar { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
+    .ds-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+    .ds-label { font-size: 13px; font-weight: 600; color: #475569; }
+    .ds-select { padding: 9px 14px; border: 1px solid #e2e8f0; border-radius: 10px; background: white; font-size: 14px; color: #334155; min-width: 240px; cursor: pointer; }
+    .ds-select:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+    .ds-hint { font-size: 13px; color: #94a3b8; }
     .search { display: flex; align-items: center; gap: 9px; background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; width: 340px; max-width: 100%; }
     .search:focus-within { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
     .search input { border: none; background: none; outline: none; font-size: 14px; flex: 1; color: #334155; }
@@ -158,6 +173,12 @@ export class DashboardsComponent implements OnDestroy {
   renamingId: string | null = null;
   private records: DashboardRecord[] = [];
   private schemaSub?: Subscription;
+  private familiesSub?: Subscription;
+
+  /** Selectable dataset families for the picker (newest first). */
+  datasetFamilies: DatasetFamily[] = [];
+  /** Sentinel value used by the picker's placeholder option ("nothing selected"). */
+  readonly noneKey = NO_ACTIVE_DATASET;
 
   private readonly cardGradients = [
     'linear-gradient(135deg,#1e3a8a,#2563eb)',
@@ -179,6 +200,8 @@ export class DashboardsComponent implements OnDestroy {
     this.loadDashboards();
     // Re-filter whenever the globally-active dataset changes.
     this.schemaSub = this.active.activeKey$.subscribe(() => this.applyScope());
+    // Keep the dataset picker in sync with the available dataset families.
+    this.familiesSub = this.active.families$.subscribe((families) => this.datasetFamilies = families);
     // Pick up a search term coming from the top-bar search (e.g. /dashboards?q=sales).
     this.routeSub = this.route.queryParamMap.subscribe((pm) => {
       this.filter = pm.get('q') ?? '';
@@ -187,7 +210,18 @@ export class DashboardsComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.schemaSub?.unsubscribe();
+    this.familiesSub?.unsubscribe();
     this.routeSub?.unsubscribe();
+  }
+
+  /** The picker's current value: the active dataset family key (or the "none" sentinel). */
+  get activeDatasetKey(): string {
+    return this.active.activeKey;
+  }
+
+  /** User picked a dataset from the dropdown → make it the active family; scoping re-applies via subscription. */
+  onDatasetPick(key: string): void {
+    this.active.setActiveKey(key || NO_ACTIVE_DATASET);
   }
 
   /** True while a search term is active (from the top-bar search or the on-page filter box). */
@@ -224,7 +258,10 @@ export class DashboardsComponent implements OnDestroy {
 
   /** Keeps only the dashboards that belong to the currently-active dataset family. */
   private applyScope(): void {
-    const scoped = this.records.filter((r) => this.active.dashboardMatchesActive(r));
+    // When no dataset family is selected, don't hide everything — show all saved dashboards.
+    const scoped = this.active.activeKey === NO_ACTIVE_DATASET
+      ? this.records
+      : this.records.filter((r) => this.active.dashboardMatchesActive(r));
     this.dashboards = scoped.map((record, index) => this.mapRecordToCard(record, index));
   }
 

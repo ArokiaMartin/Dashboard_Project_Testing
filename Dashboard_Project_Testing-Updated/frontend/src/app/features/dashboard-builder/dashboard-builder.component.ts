@@ -126,9 +126,20 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     // Restore the in-progress canvas (e.g. when returning from the full-screen Preview) so the user's
     // widgets and their grid layout survive the round-trip. Skipped when opening a specific saved
     // dashboard from the route, which restores its own widgets instead.
-    if (!this.pendingDashboardId && this.draft.widgets().length) {
-      this.committedWidgets = this.draft.widgets().map(w => ({ ...w }));
-      this.widgetSeq = this.committedWidgets.reduce((max, w) => Math.max(max, w.id), 0);
+    // Restore the in-progress canvas (e.g. when returning from the full-screen Preview) so the user's
+    // widgets and their grid layout survive the round-trip — but only when the draft belongs to the
+    // dataset that is still active. A draft from a different dataset, or none at all (a fresh session
+    // before any upload), is discarded so the builder starts clean. Skipped when opening a specific
+    // saved dashboard from the route, which restores its own widgets instead.
+    if (!this.pendingDashboardId) {
+      const draftMatchesActive = this.active.activeKey !== NO_ACTIVE_DATASET
+        && this.draft.datasetKey() === this.active.activeKey;
+      if (draftMatchesActive && this.draft.widgets().length) {
+        this.committedWidgets = this.draft.widgets().map(w => ({ ...w }));
+        this.widgetSeq = this.committedWidgets.reduce((max, w) => Math.max(max, w.id), 0);
+      } else if (!draftMatchesActive) {
+        this.draft.clear();
+      }
     }
     this.loadDatasets();
   }
@@ -146,12 +157,12 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
       this.datasets = await this.backend.listDatasets();
       // Focus the builder on the globally-active dataset (schema). Older datasets stay
       // in the database but are not offered in the picker. Skip when opening a saved
-      // dashboard from the route (it restores its own dataset).
-      if (this.datasets.length && !this.pendingDashboardId) {
-        const target = this.activeSchemaDataset();
-        if (target) {
-          await this.activateDatasetById(target.id, true);
-        }
+      // dashboard from the route (it restores its own dataset). When nothing is active
+      // (a fresh session before any upload), activate an empty selection so the builder
+      // starts clean instead of showing any leftover columns.
+      if (!this.pendingDashboardId) {
+        const target = this.datasets.length ? this.activeSchemaDataset() : undefined;
+        await this.activateDatasetById(target ? target.id : '', true);
       }
     } catch {
       this.compat.columns = [];
@@ -193,6 +204,26 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
       // No dataset for the active selection (e.g. "Select a dataset") -> clear the builder.
       this.activateDatasetById('', true);
     }
+  }
+
+  /** Canvas widgets belonging to the currently-selected dataset. Widgets built on other datasets stay
+   *  in memory but are hidden, so the canvas always shows only the current dataset's dashboard.
+   *  When viewing/editing a specific saved dashboard, all of its widgets are shown as-is. */
+  get visibleWidgets(): WidgetSpec[] {
+    if (this.pendingDashboardId) return this.committedWidgets;
+    const key = this.currentFamilyKey();
+    if (key === NO_ACTIVE_DATASET) return [];
+    return this.committedWidgets.filter((w) => this.widgetFamilyKey(w) === key);
+  }
+
+  /** The dataset family a canvas widget belongs to: its explicit tag, else derived from the upload
+   *  its query targets (databaseConfig.dataset). Empty when the source dataset is unknown. */
+  private widgetFamilyKey(w: WidgetSpec): string {
+    if (w.datasetKey) return w.datasetKey;
+    const uploadId = (w.databaseConfig?.['dataset'] as string | undefined) ?? '';
+    if (!uploadId) return '';
+    const d = this.datasets.find((x) => x.id === uploadId || x.table_name === uploadId);
+    return d ? this.active.familyKeyOf(d) : '';
   }
 
   /** One row per uploaded dataset family (its newest version), so the picker lists every dataset. */
@@ -464,6 +495,29 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     }
 
     const dim = dims[0] ?? '';
+
+    // Two categories + one measure → grouped/series chart: the first category runs along the
+    // x-axis and the second becomes one series (bar/line) per distinct value.
+    if (dims.length >= 2 && measures.length) {
+      const dim2 = dims[1];
+      const m = measures[0];
+      const labels: string[] = []; const seenLabel = new Set<string>();
+      const series: string[] = []; const seenSeries = new Set<string>();
+      const cell = new Map<string, number>();
+      for (const row of rows) {
+        const l = String(row[dim] ?? '');
+        const s = String(row[dim2] ?? '');
+        if (!seenLabel.has(l)) { seenLabel.add(l); labels.push(l); }
+        if (!seenSeries.has(s)) { seenSeries.add(s); series.push(s); }
+        cell.set(l + '\u0000' + s, Number(row[m.alias]) || 0);
+      }
+      const datasets: Series[] = series.map((s) => ({
+        label: s,
+        data: labels.map((l) => cell.get(l + '\u0000' + s) ?? 0)
+      }));
+      return { ...spec, labels, datasets };
+    }
+
     const labels = dim ? rows.map((row) => String(row[dim] ?? '')) : rows.map((_, i) => `Row ${i + 1}`);
     const valueMeasures = (spec.multiColor ? measures.slice(0, 1) : measures);
     const datasets: Series[] = valueMeasures.map((m) => ({
@@ -601,7 +655,15 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     // Build base widget specs (no chart data) from the widget descriptions and commit them to
     // the canvas immediately so the grid layout is visible before any data arrives.
     const baseWidgets = widgets
-      .map((widget, index) => this.restoreWidget(index, widget))
+      .map((widget, index) => {
+        try {
+          return this.restoreWidget(index, widget);
+        } catch (err) {
+          // One malformed/unknown widget shouldn't sink the whole dashboard — skip it.
+          console.error('Skipping a widget that could not be restored:', err);
+          return null;
+        }
+      })
       .filter((w): w is WidgetSpec => w !== null);
 
     this.committedWidgets = baseWidgets;
@@ -660,6 +722,44 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
   }
 
   // ---- selection ----
+  /** Search box text for filtering the AVAILABLE COLUMNS list (fuzzy, subsequence match). */
+  columnSearch = '';
+
+  /** Update the column-search text from the search input. */
+  onColumnSearch(e: Event) { this.columnSearch = (e.target as HTMLInputElement).value; }
+
+  /** Available columns filtered by the fuzzy search box (all columns when the box is empty). */
+  filteredColumns(): Column[] {
+    const q = this.columnSearch.trim();
+    if (!q) return this.compat.columns;
+    return this.compat.columns
+      .map((c) => ({ c, score: this.fuzzyScore(q, c.name) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map((x) => x.c);
+  }
+
+  /**
+   * Fuzzy match score: 0 = no match. Higher is a better match. Rewards a contiguous substring hit
+   * (and a prefix hit most of all), otherwise falls back to an in-order subsequence match so e.g.
+   * "crtd" still finds "Created date".
+   */
+  private fuzzyScore(query: string, text: string): number {
+    const q = query.toLowerCase();
+    const t = text.toLowerCase();
+    const idx = t.indexOf(q);
+    if (idx === 0) return 1000 - t.length;   // best: prefix match
+    if (idx > 0) return 700 - idx;            // good: substring match
+    // Fallback: characters of q appear in order within t (subsequence).
+    let ti = 0;
+    for (let qi = 0; qi < q.length; qi++) {
+      const found = t.indexOf(q[qi], ti);
+      if (found === -1) return 0;
+      ti = found + 1;
+    }
+    return 300 - (ti - q.length);            // reward tighter subsequence spans
+  }
+
   /** Single-letter type badge: S = String, I = Integer, D = Double, T = Date/Time. */
   glyph(c: Column): string {
     if (c.type === 'date') return 'T';
@@ -796,6 +896,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     this.filterKey = null; this.activeLabels = []; this.granularity = 'monthly'; this.topNOption = 'all';
     this.aggregation = 'sum'; this.rangeMin = null; this.rangeMax = null; this.chipSearch = ''; this.chipsExpanded = false;
     this.serverAgg = null; this.serverLabels = null; this.serverKpi = null;
+    this.columnSearch = '';
     this.previewSpec = null;
     this.destroyChart();
   }
@@ -839,7 +940,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
 
   /** Push the current canvas (widgets + layout + name) into the shared draft the Preview page renders. */
   private syncDraft(): void {
-    this.draft.set(this.committedWidgets, this.loadedDashboardName || 'Untitled dashboard');
+    this.draft.set(this.committedWidgets, this.loadedDashboardName || 'Untitled dashboard', this.active.activeKey);
   }
 
   /** Exit edit mode without changing the widget (it stays on the canvas as-is). */
@@ -990,7 +1091,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
   }
 
   hasSomethingToSave(): boolean {
-    return this.committedWidgets.length > 0 || this.canSaveCurrentSelection();
+    return this.visibleWidgets.length > 0 || this.canSaveCurrentSelection();
   }
 
   canSaveCurrentSelection(): boolean {
@@ -1147,8 +1248,10 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
   /** Builds the widget payload from the canvas (or hydrates the single current widget if none committed). */
   private async buildWidgetsPayload(): Promise<DashboardWidgetRecord[]> {
     let widgetsToSave: WidgetSpec[];
-    if (this.committedWidgets.length) {
-      widgetsToSave = this.committedWidgets;
+    // Only save the widgets that belong to the currently-selected dataset, so a dashboard never
+    // mixes widgets from different datasets.
+    if (this.visibleWidgets.length) {
+      widgetsToSave = this.visibleWidgets;
     } else {
       let spec = this.specFor();
       spec.id = ++this.widgetSeq;
@@ -1199,6 +1302,28 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     }));
   }
 
+  /**
+   * De-duplicates a merged widget list by content identity (name + data/chart config), keeping the
+   * first occurrence. Because saving to an existing dashboard sends existing + canvas widgets and the
+   * backend PUT replaces the whole set, re-saving a dashboard that was loaded into the canvas would
+   * otherwise double every widget on each save.
+   */
+  private dedupeWidgets(widgets: DashboardWidgetRecord[]): DashboardWidgetRecord[] {
+    const seen = new Set<string>();
+    const out: DashboardWidgetRecord[] = [];
+    for (const w of widgets) {
+      const sig = JSON.stringify([
+        (w as any).widget_name ?? '',
+        (w as any).database_config_json ?? {},
+        (w as any).chart_config_json ?? {}
+      ]);
+      if (seen.has(sig)) continue;
+      seen.add(sig);
+      out.push(w);
+    }
+    return out;
+  }
+
   /** Persists the current widget(s) to the chosen existing dashboards and/or a new one. */
   async confirmSave(): Promise<void> {
     if (this.saveBusy || !this.canConfirmSave()) {
@@ -1229,7 +1354,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
         name: target.name,
         description: target.description ?? description,
         schema_id: this.activeSchemaId,
-        widgets: [...this.mapExistingWidgets(target.widgets), ...widgets]
+        widgets: this.dedupeWidgets([...this.mapExistingWidgets(target.widgets), ...widgets])
       };
       ops.push(firstValueFrom(this.dashboardService.updateDashboardRecord(id, payload)));
     }
@@ -1577,7 +1702,8 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     const base: WidgetSpec = {
       id: 0, viz, title: '', chartType: null, labels: [], datasets: [],
       primary, fill: false, multiColor: false, radial: false, indexAxis: 'x', showLegend: false,
-      legendPosition: this.legendPos.toLowerCase() as WidgetSpec['legendPosition']
+      legendPosition: this.legendPos.toLowerCase() as WidgetSpec['legendPosition'],
+      datasetKey: this.currentFamilyKey()
     };
 
     if (viz === 'kpi') {

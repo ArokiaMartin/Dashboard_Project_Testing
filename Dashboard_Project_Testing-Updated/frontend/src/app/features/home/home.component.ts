@@ -1,9 +1,7 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink, Router } from '@angular/router';
 import { DashboardService, DashboardRecord } from '@core/services/dashboard.service';
-import { ActiveDatasetService } from '@core/services/active-dataset.service';
-import { Subscription } from 'rxjs';
 
 interface DashCard {
   id: string;
@@ -131,12 +129,11 @@ interface DashCard {
     }
   `]
 })
-export class HomeComponent implements OnInit, OnDestroy {
+export class HomeComponent implements OnInit {
   /** Recently edited dashboards for the active dataset (most recent first). */
   dashboards: DashCard[] = [];
   dashLoaded = false;
   private records: DashboardRecord[] = [];
-  private activeSub?: Subscription;
 
   private readonly cardGradients = [
     'linear-gradient(135deg,#1e3a8a,#2563eb)',
@@ -146,19 +143,11 @@ export class HomeComponent implements OnInit, OnDestroy {
 
   constructor(
     private router: Router,
-    private dashboardService: DashboardService,
-    private active: ActiveDatasetService
+    private dashboardService: DashboardService
   ) {}
 
   ngOnInit(): void {
-    this.active.ensureLoaded().then(() => this.applyScope());
     this.loadRecentDashboards();
-    // Re-scope whenever the globally-active dataset changes.
-    this.activeSub = this.active.activeKey$.subscribe(() => this.applyScope());
-  }
-
-  ngOnDestroy(): void {
-    this.activeSub?.unsubscribe();
   }
 
   private loadRecentDashboards(): void {
@@ -172,10 +161,9 @@ export class HomeComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** Keeps only the active dataset's dashboards, newest first, capped at three cards. */
+  /** Shows the most recently edited dashboards (across all datasets), capped at three cards. */
   private applyScope(): void {
     this.dashboards = [...this.records]
-      .filter((r) => this.active.dashboardMatchesActive(r))
       .sort((a, b) => this.time(b.updated_at || b.created_at) - this.time(a.updated_at || a.created_at))
       .slice(0, 3)
       .map((r, i) => ({
