@@ -1,0 +1,7 @@
+[
+  { "txn_id": "T-1", "name": "Alice", "region": "West", "cost": 30, "products": [ { "product": "Keyboard" }, { "product": "Mouse" } ] },
+  { "txn_id": "T-2", "name": "Alice", "region": "West", "cost": 20, "products": [ { "product": "Cable" } ] },
+  { "txn_id": "T-3", "name": "Alice", "region": "East", "cost": 50, "products": [ { "product": "Monitor" } ] },
+  { "txn_id": "T-4", "name": "Bob",   "region": "East", "cost": 40, "products": [ { "product": "Keyboard" } ] },
+  { "txn_id": "T-5", "name": "Bob",   "region": "West", "cost": 60, "products": [ { "product": "Webcam" }, { "product": "Mouse" } ] }
+]

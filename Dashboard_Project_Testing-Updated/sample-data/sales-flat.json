@@ -1,0 +1,18 @@
+[
+  { "region": "North", "category": "Electronics", "product": "Laptop", "rep": "Alice", "order_id": "ORD-001", "sales": 1200 },
+  { "region": "North", "category": "Electronics", "product": "Phone",  "rep": "Alice", "order_id": "ORD-002", "sales": 800 },
+  { "region": "North", "category": "Electronics", "product": "Laptop", "rep": "Bob",   "order_id": "ORD-003", "sales": 600 },
+  { "region": "North", "category": "Furniture",   "product": "Chair",  "rep": "Bob",   "order_id": "ORD-004", "sales": 300 },
+  { "region": "North", "category": "Furniture",   "product": "Desk",   "rep": "Alice", "order_id": "ORD-005", "sales": 900 },
+  { "region": "North", "category": "Furniture",   "product": "Chair",  "rep": "Alice", "order_id": "ORD-006", "sales": 200 },
+  { "region": "North", "category": "Electronics", "product": "Phone",  "rep": "Bob",   "order_id": "ORD-013", "sales": 450 },
+  { "region": "North", "category": "Furniture",   "product": "Desk",   "rep": "Bob",   "order_id": "ORD-015", "sales": 350 },
+  { "region": "South", "category": "Electronics", "product": "Laptop", "rep": "Carol", "order_id": "ORD-007", "sales": 1100 },
+  { "region": "South", "category": "Electronics", "product": "Phone",  "rep": "Carol", "order_id": "ORD-008", "sales": 700 },
+  { "region": "South", "category": "Electronics", "product": "Phone",  "rep": "Dave",  "order_id": "ORD-009", "sales": 500 },
+  { "region": "South", "category": "Furniture",   "product": "Desk",   "rep": "Dave",  "order_id": "ORD-010", "sales": 1000 },
+  { "region": "South", "category": "Furniture",   "product": "Chair",  "rep": "Carol", "order_id": "ORD-011", "sales": 400 },
+  { "region": "South", "category": "Furniture",   "product": "Desk",   "rep": "Carol", "order_id": "ORD-012", "sales": 600 },
+  { "region": "South", "category": "Electronics", "product": "Laptop", "rep": "Dave",  "order_id": "ORD-014", "sales": 950 },
+  { "region": "South", "category": "Furniture",   "product": "Chair",  "rep": "Dave",  "order_id": "ORD-016", "sales": 550 }
+]

@@ -1,0 +1,9 @@
+{
+  "schemaName": "orders",
+  "description": "Orders with a nested items array carrying per-product cost (safe drilldown demo)",
+  "schemaDefinition": {},
+  "fields": [
+    { "fieldName": "order_id", "fieldType": "STRING", "isRequired": true, "isDimension": true, "isMeasure": false, "isPrimaryKey": true,  "description": "Order id (unique)" },
+    { "fieldName": "name",     "fieldType": "STRING", "isRequired": true, "isDimension": true, "isMeasure": false, "isPrimaryKey": false, "description": "Customer name" }
+  ]
+}

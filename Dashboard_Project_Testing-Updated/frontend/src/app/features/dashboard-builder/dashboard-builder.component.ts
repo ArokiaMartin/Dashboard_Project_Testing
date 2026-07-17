@@ -1305,9 +1305,10 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     return this.compat.columns.filter(c => c.type !== 'number' && c.name !== plotted && c.name !== tableBase);
   }
 
-  /** Show the drill picker for charts, KPIs and tables that have a base level and something to drill into.
-   *  Charts drill from their single plotted dimension; KPIs from the total; tables from their first
-   *  dimension column (which also needs a measure to aggregate on the way down). Scatter can't drill. */
+  /** Show the drill picker for KPIs and tables only. Charts now use the click-based auto drilldown
+   *  (POST /api/drilldown), which picks the next dimension by cardinality — a manual drill-down path is
+   *  redundant for them. KPIs drill from the total; tables from their first dimension column (which also
+   *  needs a measure to aggregate on the way down). Scatter can't drill. */
   showDrillPicker(): boolean {
     if (!this.hasColumns() || this.selectedViz === 'scatter') return false;
     if (this.selectedViz === 'kpi') {
@@ -1316,7 +1317,8 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     if (this.selectedViz === 'table') {
       return this.dimCols().length >= 1 && this.measureCols().length >= 1 && this.drillCandidates().length > 0;
     }
-    return this.isChartViz(this.selectedViz) && this.currentDimName() !== null && this.drillCandidates().length > 0;
+    // Charts are handled by the auto (click) drilldown — no manual path picker.
+    return false;
   }
 
   /** Human label for where a drill starts, shown in the picker hint (chart dimension / KPI total / table column). */

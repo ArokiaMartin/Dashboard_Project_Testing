@@ -1,0 +1,6 @@
+[
+  { "order_id": "O-1", "name": "Alice", "items": [ { "product": "Keyboard", "cost": 30 }, { "product": "Mouse", "cost": 20 } ] },
+  { "order_id": "O-2", "name": "Alice", "items": [ { "product": "Monitor", "cost": 50 } ] },
+  { "order_id": "O-3", "name": "Bob",   "items": [ { "product": "Keyboard", "cost": 40 } ] },
+  { "order_id": "O-4", "name": "Bob",   "items": [ { "product": "Webcam", "cost": 35 }, { "product": "Mouse", "cost": 25 } ] }
+]

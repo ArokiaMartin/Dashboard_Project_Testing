@@ -1,0 +1,11 @@
+{
+  "schemaName": "transactions",
+  "description": "Transactions with a nested products array (fan-out drilldown demo)",
+  "schemaDefinition": {},
+  "fields": [
+    { "fieldName": "txn_id", "fieldType": "STRING",  "isRequired": true,  "isDimension": true,  "isMeasure": false, "isPrimaryKey": true,  "description": "Transaction id (unique)" },
+    { "fieldName": "name",   "fieldType": "STRING",  "isRequired": true,  "isDimension": true,  "isMeasure": false, "isPrimaryKey": false, "description": "Customer name" },
+    { "fieldName": "region", "fieldType": "STRING",  "isRequired": false, "isDimension": true,  "isMeasure": false, "isPrimaryKey": false, "description": "Region" },
+    { "fieldName": "cost",   "fieldType": "NUMERIC", "isRequired": true,  "isDimension": false, "isMeasure": true,  "isPrimaryKey": false, "description": "Transaction cost (measure)" }
+  ]
+}

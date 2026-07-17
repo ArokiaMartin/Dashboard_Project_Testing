@@ -1,0 +1,13 @@
+{
+  "schemaName": "sales",
+  "description": "Flat sales fact for testing click-based auto drilldown (region -> category -> product / rep)",
+  "schemaDefinition": {},
+  "fields": [
+    { "fieldName": "region",   "fieldType": "STRING",  "isRequired": true, "isDimension": true,  "isMeasure": false, "isPrimaryKey": false, "description": "Sales region" },
+    { "fieldName": "category", "fieldType": "STRING",  "isRequired": true, "isDimension": true,  "isMeasure": false, "isPrimaryKey": false, "description": "Product category" },
+    { "fieldName": "product",  "fieldType": "STRING",  "isRequired": true, "isDimension": true,  "isMeasure": false, "isPrimaryKey": false, "description": "Product" },
+    { "fieldName": "rep",      "fieldType": "STRING",  "isRequired": true, "isDimension": true,  "isMeasure": false, "isPrimaryKey": false, "description": "Sales rep" },
+    { "fieldName": "order_id", "fieldType": "STRING",  "isRequired": true, "isDimension": false, "isMeasure": false, "isPrimaryKey": true,  "description": "Order id (unique key, excluded from drill)" },
+    { "fieldName": "sales",    "fieldType": "NUMERIC", "isRequired": true, "isDimension": false, "isMeasure": true,  "isPrimaryKey": false, "description": "Sales amount (measure)" }
+  ]
+}
