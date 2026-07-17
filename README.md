@@ -32,42 +32,41 @@ A self-service, Power BI–style business-intelligence platform. Upload arbitrar
 The platform is a classic **three-tier** application. The browser never touches the database directly — every operation flows through the REST API.
 
 ```mermaid
-flowchart TB
-    subgraph CLIENT["🖥️ PRESENTATION TIER — Angular 17 SPA (:4200)"]
-        direction LR
-        U1["Upload and Schema<br/>Wizard"]
-        U2["Dashboard<br/>Builder"]
-        U3["Data<br/>Explorer"]
-        U4["Drill-Down<br/>Widget Tiles"]
-        SVC["Core Services<br/>(active-dataset · backend-integration · draft state)"]
-    end
-
-    subgraph API["⚙️ APPLICATION TIER — Spring Boot 3.5 REST API (:8081)"]
+flowchart LR
+    subgraph FE["🖥️ FRONTEND · Angular 17 (:4200)"]
         direction TB
-        CTRL["REST Controllers ×8"]
-        subgraph ENGINES["Engines"]
-            direction LR
-            ING["Ingestion Pipeline<br/>stream · flatten · load"]
-            QRY["Query Engine<br/>config → SQL"]
-            DRL["Drill-Down Engine<br/>cardinality scoring"]
-        end
-        NORM["QueryConfigNormalizer<br/>single source of truth for SQL"]
-        SAFE["SqlIdentifier (injection defence) · GlobalExceptionHandler · CORS · OpenAPI"]
+        FE0["frontend/src/app/"]
+        FE1["core/services/<br/>backend-integration · active-dataset<br/>chart-compatibility · dashboard · upload"]
+        FE2["features/<br/>home · upload · data-explorer<br/>dashboard-builder · dashboards"]
+        FE3["shared/<br/>widgets · models · pipes"]
+        FE4["layout/<br/>sidebar"]
+        FE0 --> FE1 --> FE2 --> FE3 --> FE4
     end
 
-    subgraph DB["🗄️ DATA TIER — PostgreSQL (dashboard-db)"]
-        direction LR
-        T1["Dynamic data tables<br/>(root + nested child tables)"]
-        T2["schemas ·<br/>data_versions"]
-        T3["dashboards ·<br/>widgets"]
-        T4["field_metadata ·<br/>audit_log"]
+    subgraph BE["⚙️ BACKEND · Spring Boot 3.5 (:8081)"]
+        direction TB
+        BE0["backend/src/main/java/.../dashboard_backend/"]
+        BE1["controller/<br/>8 REST controllers"]
+        BE2["service/<br/>ingestion · schema · versioning · dashboards"]
+        BE3["ingestion/<br/>ddl · load · metadata · schema · support"]
+        BE4["query/<br/>QueryConfigNormalizer"]
+        BE5["drilldown/<br/>service + candidate selector"]
+        BE6["model · config · exception · util"]
+        BE0 --> BE1 --> BE2 --> BE3 --> BE4 --> BE5 --> BE6
     end
 
-    CLIENT -- "REST / JSON over HTTP" --> API
-    API -- "REST / JSON over HTTP" --> CLIENT
-    CTRL --> ENGINES
-    ENGINES --> NORM
-    NORM -- "JDBC · COPY bulk-load" --> DB
+    subgraph DB["🗄️ DATABASE · PostgreSQL (dashboard-db)"]
+        direction TB
+        DB1["Dynamic data tables<br/>root + nested child tables"]
+        DB2["schemas · schema_fields"]
+        DB3["data_uploads · field_metadata"]
+        DB4["data_versions"]
+        DB5["dashboards · dashboard_widgets"]
+        DB1 --> DB2 --> DB3 --> DB4 --> DB5
+    end
+
+    FE ==>|"REST / JSON over HTTP"| BE
+    BE ==>|"JDBC · COPY bulk-load"| DB
 ```
 
 ### Tier responsibilities
