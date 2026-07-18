@@ -1,0 +1,53 @@
+{
+  "schemaName": "clinic_visits",
+  "description": "Clinic visit records. Nested arrays in the DATA explode into related child tables at ingestion: diagnoses, prescriptions (with a nested refills array -> grandchild table), and lab_tests. The nested patient object is inlined as dot-columns (patient.name, patient.age, patient.gender) and does NOT create a table.",
+  "fields": [
+    {
+      "fieldName": "visit_id",
+      "fieldType": "STRING",
+      "isRequired": true,
+      "isDimension": false,
+      "isMeasure": false,
+      "isPrimaryKey": true,
+      "description": "Unique visit identifier"
+    },
+    {
+      "fieldName": "visit_date",
+      "fieldType": "DATE",
+      "isRequired": true,
+      "isDimension": true,
+      "isMeasure": false,
+      "description": "Date of the visit (YYYY-MM-DD)"
+    },
+    {
+      "fieldName": "department",
+      "fieldType": "STRING",
+      "isRequired": true,
+      "isDimension": true,
+      "isMeasure": false,
+      "description": "Clinic department",
+      "validationRules": {
+        "enum": ["Cardiology", "Neurology", "Orthopedics", "Pediatrics", "General"]
+      }
+    },
+    {
+      "fieldName": "total_cost",
+      "fieldType": "NUMERIC",
+      "isRequired": true,
+      "isDimension": false,
+      "isMeasure": true,
+      "description": "Total billed cost for the visit",
+      "validationRules": {
+        "minimum": 0
+      }
+    },
+    {
+      "fieldName": "is_followup",
+      "fieldType": "BOOLEAN",
+      "isRequired": true,
+      "isDimension": true,
+      "isMeasure": false,
+      "description": "Whether this visit is a follow-up"
+    }
+  ]
+}

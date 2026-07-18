@@ -1,0 +1,11 @@
+[
+  {"id": 101, "date": "2026-01-15", "region": "North", "amount": 25000, "quantity": 100},
+  {"id": 102, "date": "2026-01-15", "region": "South", "amount": 22500, "quantity": 90},
+  {"id": 103, "date": "2026-01-15", "region": "East", "amount": 27500, "quantity": 110},
+  {"id": 104, "date": "2026-02-15", "region": "North", "amount": 26000, "quantity": 105},
+  {"id": 105, "date": "2026-02-15", "region": "South", "amount": 24000, "quantity": 95},
+  {"id": 106, "date": "2026-02-15", "region": "East", "amount": 29000, "quantity": 115},
+  {"id": 107, "date": "2026-03-15", "region": "North", "amount": 27500, "quantity": 110},
+  {"id": 108, "date": "2026-03-15", "region": "South", "amount": 25000, "quantity": 100},
+  {"id": 109, "date": "2026-03-15", "region": "East", "amount": 30000, "quantity": 120}
+]

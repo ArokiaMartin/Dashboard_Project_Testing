@@ -1,0 +1,7 @@
+[
+  {"id": 1001, "name": "Alice Wilson", "email": "alice.w@example.com", "city": "New York"},
+  {"id": 1002, "name": "Bob Miller", "email": "bob.m@example.com", "city": "Los Angeles"},
+  {"id": 1003, "name": "Carol Davis", "email": "carol.d@example.com", "city": "Chicago"},
+  {"id": 1004, "name": "David Garcia", "email": "david.g@example.com", "city": "Houston"},
+  {"id": 1005, "name": "Emily Rodriguez", "email": "emily.r@example.com", "city": "Phoenix"}
+]

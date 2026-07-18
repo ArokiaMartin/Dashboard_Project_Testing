@@ -1,0 +1,106 @@
+{
+  "schemaName": "marketing_campaigns",
+  "description": "Marketing campaign performance data with spend, channel, and conversion metrics",
+  "fields": [
+    {
+      "fieldName": "campaign_id",
+      "fieldType": "STRING",
+      "isRequired": true,
+      "isDimension": false,
+      "isMeasure": false,
+      "isPrimaryKey": true,
+      "description": "Unique campaign identifier"
+    },
+    {
+      "fieldName": "campaign_name",
+      "fieldType": "STRING",
+      "isRequired": true,
+      "isDimension": true,
+      "isMeasure": false,
+      "description": "Name of the marketing campaign"
+    },
+    {
+      "fieldName": "channel",
+      "fieldType": "STRING",
+      "isRequired": true,
+      "isDimension": true,
+      "isMeasure": false,
+      "description": "Marketing channel",
+      "validationRules": {
+        "enum": ["Email", "Social", "Search", "Display", "Affiliate"]
+      }
+    },
+    {
+      "fieldName": "spend",
+      "fieldType": "NUMERIC",
+      "isRequired": true,
+      "isDimension": false,
+      "isMeasure": true,
+      "description": "Total campaign spend in USD",
+      "validationRules": {
+        "minimum": 0,
+        "maximum": 9999999.99
+      }
+    },
+    {
+      "fieldName": "impressions",
+      "fieldType": "INTEGER",
+      "isRequired": true,
+      "isDimension": false,
+      "isMeasure": true,
+      "description": "Number of impressions",
+      "validationRules": {
+        "minimum": 0
+      }
+    },
+    {
+      "fieldName": "clicks",
+      "fieldType": "INTEGER",
+      "isRequired": true,
+      "isDimension": false,
+      "isMeasure": true,
+      "description": "Number of clicks",
+      "validationRules": {
+        "minimum": 0
+      }
+    },
+    {
+      "fieldName": "conversions",
+      "fieldType": "INTEGER",
+      "isRequired": true,
+      "isDimension": false,
+      "isMeasure": true,
+      "description": "Number of conversions",
+      "validationRules": {
+        "minimum": 0
+      }
+    },
+    {
+      "fieldName": "region",
+      "fieldType": "STRING",
+      "isRequired": true,
+      "isDimension": true,
+      "isMeasure": false,
+      "description": "Target region",
+      "validationRules": {
+        "enum": ["North", "South", "East", "West", "Central"]
+      }
+    },
+    {
+      "fieldName": "start_date",
+      "fieldType": "DATE",
+      "isRequired": true,
+      "isDimension": true,
+      "isMeasure": false,
+      "description": "Campaign start date (YYYY-MM-DD)"
+    },
+    {
+      "fieldName": "is_active",
+      "fieldType": "BOOLEAN",
+      "isRequired": false,
+      "isDimension": true,
+      "isMeasure": false,
+      "description": "Whether the campaign is currently active"
+    }
+  ]
+}
