@@ -114,6 +114,22 @@ public class IngestionMetadataRepository {
                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """);
+
+        // Explicit parent→child table relationship registry.
+        // Recorded at ingestion time (when parentTableName is already known), so query-time
+        // JOIN building never needs to scan information_schema or guess via name prefix.
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS upload_table_children (
+                  upload_id       UUID NOT NULL REFERENCES data_uploads(id) ON DELETE CASCADE,
+                  parent_table    VARCHAR(255) NOT NULL,
+                  child_table     VARCHAR(255) NOT NULL,
+                  PRIMARY KEY (upload_id, child_table)
+                )
+                """);
+        // Index for the lookup pattern used in buildFlatFromClause: find all children of a root.
+        jdbcTemplate.execute(
+                "CREATE INDEX IF NOT EXISTS idx_utc_upload_parent ON upload_table_children (upload_id, parent_table)"
+        );
     }
 
     public void recordUpload(UUID uploadId, UUID userId, String rootTableName, String originalFilename,
@@ -169,5 +185,40 @@ public class IngestionMetadataRepository {
             return value;
         }
         return value.substring(0, maxLength) + "...";
+    }
+
+    /**
+     * Records a direct parent→child table relationship for an upload.
+     *
+     * <p>Called at ingestion time — when {@code parentTableName} and {@code childTableName} are
+     * already known — so query-time JOIN building never has to scan {@code information_schema} or
+     * guess relationships from table name prefixes.
+     */
+    public void recordTableRelationship(UUID uploadId, String parentTableName, String childTableName) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO upload_table_children (upload_id, parent_table, child_table)
+                VALUES (?, ?, ?)
+                ON CONFLICT (upload_id, child_table) DO NOTHING
+                """,
+                uploadId, parentTableName, childTableName
+        );
+    }
+
+    /**
+     * Returns all child→parent entries for an upload.
+     * Order is intentionally unspecified — callers that need a specific traversal order
+     * (e.g. topological / BFS) are responsible for sorting using the parent→child map.
+     * Each row is a map with keys {@code child_table} and {@code parent_table}.
+     */
+    public List<Map<String, Object>> getTableChildren(UUID uploadId) {
+        return jdbcTemplate.queryForList(
+                """
+                SELECT child_table, parent_table
+                FROM upload_table_children
+                WHERE upload_id = ?
+                """,
+                uploadId
+        );
     }
 }

@@ -290,6 +290,18 @@ public class JsonIngestionService {
         metadataRepository.recordUpload(uploadId, userId, rootTableName, originalFilename,
                 rootRowsInserted, rootSchema.fields().size());
 
+        // Record every parent→child table relationship explicitly so query-time JOIN building
+        // can look them up from our own metadata instead of scanning information_schema.
+        for (TableSchema schema : schemas.orderedParentFirst()) {
+            if (!schema.tablePath().equals("root")) {
+                String childTableName  = tableNames.get(schema.tablePath());
+                String parentTableName = tableNames.get(DynamicTableManager.parentPathOf(schema.tablePath()));
+                if (parentTableName != null && childTableName != null) {
+                    metadataRepository.recordTableRelationship(uploadId, parentTableName, childTableName);
+                }
+            }
+        }
+
         for (TableSchema schema : schemas.orderedParentFirst()) {
             metadataRepository.saveFieldMetadata(uploadId, schema.tablePath(), schema.fields());
         }

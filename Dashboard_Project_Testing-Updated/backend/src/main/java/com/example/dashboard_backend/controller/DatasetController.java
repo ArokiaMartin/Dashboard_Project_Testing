@@ -1,5 +1,6 @@
 package com.example.dashboard_backend.controller;
 
+import com.example.dashboard_backend.ingestion.metadata.IngestionMetadataRepository;
 import com.example.dashboard_backend.util.SqlIdentifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,9 +19,11 @@ public class DatasetController {
 
 
     private final JdbcTemplate jdbcTemplate;
+    private final IngestionMetadataRepository metadataRepository;
 
-    public DatasetController(JdbcTemplate jdbcTemplate) {
+    public DatasetController(JdbcTemplate jdbcTemplate, IngestionMetadataRepository metadataRepository) {
         this.jdbcTemplate = jdbcTemplate;
+        this.metadataRepository = metadataRepository;
     }
 
     /** List all datasets uploaded by user_123. */
@@ -138,18 +141,12 @@ public class DatasetController {
             typeByNorm.putIfAbsent(normalized, fieldType);
         }
 
-        // Root first, then its child tables. Child tables are the ones with a parent_row_id column whose
-        // physical name starts with the root table name; names come from the catalog so we never guess.
-        List<String> parentTables = jdbcTemplate.queryForList(
-            "SELECT table_name FROM information_schema.columns " +
-            "WHERE table_schema = current_schema() AND column_name = 'parent_row_id'",
-            String.class);
+        // Root first, then its child tables — looked up from our own metadata, not information_schema.
+        List<Map<String, Object>> relationships = metadataRepository.getTableChildren(uploadId);
         List<String> tableNames = new ArrayList<>();
         tableNames.add(rootTable);
-        parentTables.stream()
-            .filter(t -> t.startsWith(rootTable + "_"))
-            .distinct()
-            .sorted()
+        relationships.stream()
+            .map(r -> String.valueOf(r.get("child_table")))
             .forEach(tableNames::add);
 
         List<Map<String, Object>> tables = new ArrayList<>();
@@ -256,36 +253,42 @@ public class DatasetController {
             typeByNorm.putIfAbsent(normalized, fieldType);
         }
 
-        // Child tables (have parent_row_id, name prefixed by "<root>_"), shortest-name first so a
-        // table's parent is always seen before the table itself.
-        List<String> childTables = jdbcTemplate.queryForList(
-            "SELECT table_name FROM information_schema.columns " +
-            "WHERE table_schema = current_schema() AND column_name = 'parent_row_id'",
-            String.class).stream()
-            .filter(t -> t.startsWith(rootTable + "_"))
-            .distinct()
-            .sorted(Comparator.comparingInt(String::length).thenComparing(Comparator.naturalOrder()))
-            .collect(Collectors.toList());
+        // Child tables — looked up from our own metadata, not information_schema.
+        // Already ordered shortest-name first (SQL ORDER BY in getTableChildren) so a table's
+        // parent is always encountered before the table itself.
+        List<Map<String, Object>> relationships = metadataRepository.getTableChildren(uploadId);
+        Map<String, String> parentOf = new LinkedHashMap<>();
+        Map<String, List<String>> childrenOf = new LinkedHashMap<>();
+        for (Map<String, Object> rel : relationships) {
+            String child  = String.valueOf(rel.get("child_table"));
+            String parent = String.valueOf(rel.get("parent_table"));
+            parentOf.put(child, parent);
+            childrenOf.computeIfAbsent(parent, k -> new ArrayList<>()).add(child);
+        }
 
+        // BFS from root — topological order using the explicit parent→child map.
+        // No name-length heuristic: a node is only enqueued after its parent is processed.
         List<String> orderedTables = new ArrayList<>();
-        orderedTables.add(rootTable);
-        orderedTables.addAll(childTables);
+        List<String> childTables   = new ArrayList<>();
+        Deque<String> bfsQueue = new ArrayDeque<>();
+        bfsQueue.add(rootTable);
+        while (!bfsQueue.isEmpty()) {
+            String current = bfsQueue.poll();
+            orderedTables.add(current);
+            if (!current.equals(rootTable)) childTables.add(current);
+            childrenOf.getOrDefault(current, Collections.emptyList())
+                      .stream().sorted().forEach(bfsQueue::add);
+        }
         Map<String, String> aliasOf = new HashMap<>();
         for (int i = 0; i < orderedTables.size(); i++) {
             aliasOf.put(orderedTables.get(i), "t" + i);
         }
 
-        // Build the FROM/JOIN chain. Each child joins onto its parent (the table whose name is the
-        // longest prefix of the child's name).
+        // Build the FROM/JOIN chain using the explicit parent-of map from metadata.
         StringBuilder from = new StringBuilder(quoteIdentifier(rootTable) + " " + aliasOf.get(rootTable));
         List<Object> params = new ArrayList<>();
         for (String child : childTables) {
-            String parent = rootTable;
-            for (String cand : orderedTables) {
-                if (!cand.equals(child) && child.startsWith(cand + "_") && cand.length() > parent.length()) {
-                    parent = cand;
-                }
-            }
+            String parent = parentOf.get(child);
             String ca = aliasOf.get(child);
             String pa = aliasOf.get(parent);
             from.append(" LEFT JOIN ").append(quoteIdentifier(child)).append(" ").append(ca)
