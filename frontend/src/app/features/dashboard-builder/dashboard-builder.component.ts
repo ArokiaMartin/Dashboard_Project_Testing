@@ -7,7 +7,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom, Subject, Subscription } from 'rxjs';
 import { Chart, registerables } from 'chart.js';
 import { WidgetSpec, WidgetEditState, Series, buildChartConfig } from './widget-tile.component';
-import { DashboardGridComponent, defaultGridLayout } from './dashboard-grid.component';
+import { DashboardCanvasComponent, defaultGridLayout } from './dashboard-canvas.component';
 import { ChartCompatibilityService, Column, VizDef } from '@core/services/chart-compatibility.service';
 import { BackendIntegrationService, DatasetSummary } from '@core/services/backend-integration.service';
 import { DashboardRecord, DashboardWidgetRecord, DashboardService, SaveDashboardRequest } from '@core/services/dashboard.service';
@@ -23,7 +23,7 @@ interface ChartMeta { t: WidgetSpec['chartType']; axis: 'x' | 'y'; fill: boolean
 @Component({
   selector: 'app-dashboard-builder',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, DashboardGridComponent],
+  imports: [CommonModule, FormsModule, RouterLink, DashboardCanvasComponent],
   templateUrl: './dashboard-builder.component.html',
   styleUrls: ['./dashboard-builder.component.css']
 })
@@ -111,6 +111,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
 
   // ---- unsaved-changes guard ----
   showUnsavedModal = false;
+  showDatasetChangeModal = false;
   private pendingNavigationUrl: string | null = null;
   private pendingDatasetId: string | null = null;
   /** Resolved by confirmLeave() / saveAndLeave() so the router CanDeactivate guard can unblock. */
@@ -364,6 +365,11 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     if (this.hasSomethingToSave()) {
       this.pendingDatasetId = id;
       this.showUnsavedModal = true;
+      return;
+    }
+    if (this.committedWidgets.length > 0) {
+      this.pendingDatasetId = id;
+      this.showDatasetChangeModal = true;
       return;
     }
     await this.doSelectDataset(id);
@@ -1703,14 +1709,30 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     }
   }
 
-  saveAndLeave(): void {
+  cancelLeave(): void {
     this.showUnsavedModal = false;
-    this.saveDashboard();
     this.pendingDatasetId = null;
     this.pendingNavigationUrl = null;
-    // Dismiss the guard — user chose to save, let the router continue
-    this.deactivate$.next(true);
+    this.deactivate$.next(false);
     this.deactivate$.complete();
+  }
+
+  confirmDatasetChange(): void {
+    this.showDatasetChangeModal = false;
+    if (this.pendingDatasetId) {
+      const id = this.pendingDatasetId;
+      this.pendingDatasetId = null;
+      this.committedWidgets = [];
+      this.selectedCols = [];
+      this.selectedViz = null;
+      this.drillPathNames = [];
+      this.doSelectDataset(id);
+    }
+  }
+
+  cancelDatasetChange(): void {
+    this.showDatasetChangeModal = false;
+    this.pendingDatasetId = null;
   }
 
   private async doSelectDataset(id: string): Promise<void> {

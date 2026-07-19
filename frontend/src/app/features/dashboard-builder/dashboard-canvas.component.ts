@@ -23,7 +23,7 @@ export function defaultGridLayout(index: number): GridLayout {
  * way (they never overlap). Emits `layoutChange` after each gesture so the host can persist positions.
  */
 @Component({
-  selector: 'app-dashboard-grid',
+  selector: 'app-dashboard-canvas',
   standalone: true,
   imports: [CommonModule, WidgetTileComponent],
   template: `
@@ -104,7 +104,7 @@ export function defaultGridLayout(index: number): GridLayout {
     .gi-resize:hover { color: #2563eb; }
   `]
 })
-export class DashboardGridComponent implements AfterViewInit, OnChanges, OnDestroy {
+export class DashboardCanvasComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() widgets: WidgetSpec[] = [];
   @Input() readOnly = false;
   @Input() editingId: number | null = null;
@@ -165,7 +165,7 @@ export class DashboardGridComponent implements AfterViewInit, OnChanges, OnDestr
    * and the value never changes within a cycle, so Angular's NG0100 guard is never tripped.
    */
   private colUnit(): number {
-    const w = this.host.nativeElement.clientWidth || DashboardGridComponent.FALLBACK_W;
+    const w = this.host.nativeElement.clientWidth || DashboardCanvasComponent.FALLBACK_W;
     return (w - (this.cols - 1) * this.gap) / this.cols;
   }
 

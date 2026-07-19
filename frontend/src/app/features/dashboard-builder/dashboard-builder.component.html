@@ -8,8 +8,23 @@
         <h3>Unsaved changes</h3>
         <p>Your current session has unsaved changes. What would you like to do?</p>
         <div class="unsaved-actions">
-          <button class="unsaved-leave" (click)="confirmLeave()">Leave without saving</button>
-          <button class="unsaved-save" (click)="saveAndLeave()">Save &amp; Continue</button>
+          <button class="unsaved-leave" (click)="cancelLeave()">Cancel</button>
+          <button class="unsaved-save" (click)="confirmLeave()">Leave without saving</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dataset change guard modal -->
+    <div class="unsaved-overlay" *ngIf="showDatasetChangeModal">
+      <div class="unsaved-dialog">
+        <div class="unsaved-icon">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </div>
+        <h3>Change Dataset?</h3>
+        <p>Changing the dataset will start a new dashboard builder session. Is it okay?</p>
+        <div class="unsaved-actions">
+          <button class="unsaved-leave" (click)="cancelDatasetChange()">Cancel</button>
+          <button class="unsaved-save" (click)="confirmDatasetChange()">Continue</button>
         </div>
       </div>
     </div>
@@ -175,10 +190,10 @@
 
         <!-- CENTER -->
         <section class="center">
-          <app-dashboard-grid *ngIf="visibleWidgets.length"
+          <app-dashboard-canvas *ngIf="visibleWidgets.length"
             [widgets]="visibleWidgets" [editingId]="editingWidgetId" [readOnly]="false"
             (remove)="removeWidget($event)" (edit)="editWidget($event)" (layoutChange)="onLayoutChange()" (dragStart)="saveStateForUndo()">
-          </app-dashboard-grid>
+          </app-dashboard-canvas>
           <div class="view-empty" *ngIf="viewMode && !visibleWidgets.length">
             <p>This dashboard has no widgets yet.</p>
             <button class="vh-edit" (click)="editThisDashboard()">Add widgets</button>

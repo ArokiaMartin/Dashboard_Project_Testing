@@ -1,7 +1,7 @@
 import { Component, HostListener, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
-import { DashboardGridComponent } from '@features/dashboard-builder/dashboard-grid.component';
+import { DashboardCanvasComponent } from '@features/dashboard-builder/dashboard-canvas.component';
 import { DashboardDraftService } from '@core/services/dashboard-draft.service';
 import { WidgetSpec } from '@features/dashboard-builder/widget-tile.component';
 
@@ -14,7 +14,7 @@ import { WidgetSpec } from '@features/dashboard-builder/widget-tile.component';
 @Component({
   selector: 'app-dashboard-preview',
   standalone: true,
-  imports: [CommonModule, DashboardGridComponent],
+  imports: [CommonModule, DashboardCanvasComponent],
   template: `
     <div class="pv-root">
       <!-- Normal header — hidden during fullscreen -->
@@ -47,7 +47,7 @@ import { WidgetSpec } from '@features/dashboard-builder/widget-tile.component';
 
       <div class="pv-scroll">
         <div class="pv-canvas" *ngIf="draft.widgets().length; else empty">
-          <app-dashboard-grid [widgets]="liveWidgets" [readOnly]="false" (layoutChange)="onLayoutChange()"></app-dashboard-grid>
+          <app-dashboard-canvas [widgets]="liveWidgets" [readOnly]="false" (layoutChange)="onLayoutChange()"></app-dashboard-canvas>
         </div>
         <ng-template #empty>
           <div class="pv-empty">
