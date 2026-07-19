@@ -201,6 +201,7 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
   menuOpen = false;
   renaming = false;
   @Output() renamed = new EventEmitter<string>();
+  @Output() drillChange = new EventEmitter<void>();
   @ViewChild('renameInput') renameInput?: ElementRef<HTMLInputElement>;
 
   toggleMenu(e: MouseEvent) { e.stopPropagation(); this.menuOpen = !this.menuOpen; }
@@ -275,7 +276,15 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
   /** Redraw when the widget is updated in place (same id, new config) — otherwise edits wouldn't show. */
   ngOnChanges(changes: SimpleChanges) {
     if (changes['spec'] && !changes['spec'].firstChange) {
-      this.resetDrillState();          // a replaced/edited widget starts fresh at the top level
+      const prev = changes['spec'].previousValue as WidgetSpec;
+      const curr = changes['spec'].currentValue as WidgetSpec;
+      
+      const configChanged = JSON.stringify(prev?.databaseConfig) !== JSON.stringify(curr?.databaseConfig);
+      const vizChanged = prev?.viz !== curr?.viz || prev?.chartType !== curr?.chartType;
+      
+      if (configChanged || vizChanged) {
+        this.resetDrillState();          // a replaced/edited widget starts fresh at the top level
+      }
       setTimeout(() => this.initRender(), 0);
     }
   }
@@ -290,6 +299,13 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
 
     if (this.spec.drillState?.drillStack && this.spec.drillState.drillStack.length > 0) {
       const target = this.spec.drillState.drillStack;
+      const isAlreadyRendered = this.renderedStack.length === target.length &&
+        this.renderedStack.every((step, idx) => step.field === target[idx].field && step.value === target[idx].value);
+        
+      if (isAlreadyRendered || this.drillLoading) {
+        return;
+      }
+
       if (this.autoMode()) {
         const lastDim = target[target.length - 1].field;
         this.loadAuto(target, lastDim, true);
@@ -493,7 +509,6 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
     this.loadLevel([]);
   }
 
-  /** Drop a KPI/table back to its non-drilled base view (the number / the raw rows). */
   private collapseToBase(): void {
     this.drillStack = [];
     this.renderedStack = [];
@@ -501,6 +516,7 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
     this.drillLabels = null;
     this.drillDatasets = null;
     this.drillError = '';
+    this.drillChange.emit();
     this.scheduleRender();
   }
 
@@ -565,6 +581,7 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
           }];
           this.renderedStack = target;
           this.spec.drillState = { drillStack: this.renderedStack };
+          this.drillChange.emit();
         }
         this.drillLoading = false;
         this.scheduleRender();
@@ -606,6 +623,7 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
         }));
         this.renderedStack = target;
         this.spec.drillState = { drillStack: this.renderedStack };
+        this.drillChange.emit();
         this.drillLoading = false;
         this.scheduleRender();
       })

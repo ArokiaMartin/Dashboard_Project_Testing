@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { unsavedChangesGuard } from '@core/guards/unsaved-changes.guard';
 
 export const routes: Routes = [
   { path: '', redirectTo: '/home', pathMatch: 'full' },
@@ -12,6 +13,11 @@ export const routes: Routes = [
   },
   {
     path: 'builder',
+    loadComponent: () => import('@features/dashboard-builder/dashboard-builder.component').then(m => m.DashboardBuilderComponent),
+    canDeactivate: [unsavedChangesGuard]
+  },
+  {
+    path: 'share/:username/:dashboardId',
     loadComponent: () => import('@features/dashboard-builder/dashboard-builder.component').then(m => m.DashboardBuilderComponent)
   },
   {

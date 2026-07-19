@@ -44,7 +44,7 @@ export function defaultGridLayout(index: number): GridLayout {
            [style.left.px]="itemLeft(w)" [style.top.px]="itemTop(w)"
            [style.width.px]="itemWidth(w)" [style.height.px]="itemHeight(w)">
         <app-widget-tile [spec]="w" [editing]="w.id === editingId" [readOnly]="readOnly"
-                         (remove)="remove.emit(w.id)" (edit)="edit.emit(w.id)"></app-widget-tile>
+                         (remove)="remove.emit(w.id)" (edit)="edit.emit(w.id)" (drillChange)="drillChange.emit()"></app-widget-tile>
 
         <!-- Header drag zone: grab the card header (title area) to move the tile. Leaves the top-right
              menu button clickable. A subtle grip appears on hover as an affordance. -->
@@ -113,6 +113,7 @@ export class DashboardCanvasComponent implements AfterViewInit, OnChanges, OnDes
   /** Fired after a drag/resize gesture completes, so the host can persist the updated layouts. */
   @Output() layoutChange = new EventEmitter<void>();
   @Output() dragStart = new EventEmitter<void>();
+  @Output() drillChange = new EventEmitter<void>();
 
   readonly cols = COLS;
   readonly rowH = ROW_H;

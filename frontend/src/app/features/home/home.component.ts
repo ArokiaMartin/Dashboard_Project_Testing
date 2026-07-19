@@ -462,9 +462,12 @@ export class HomeComponent implements OnInit, AfterViewInit, OnDestroy {
         },
         scales: {
           y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
-          x: { grid: { display: false } }
+          x: { 
+            grid: { display: false },
+            ticks: { autoSkip: false, maxRotation: 45, minRotation: 0 }
+          }
         },
-        interaction: { mode: 'nearest', axis: 'x', intersect: false }
+        interaction: { mode: 'index', axis: 'x', intersect: false }
       }
     });
   }

@@ -107,13 +107,13 @@ interface ChildTable {
       </div>
 
             <!-- Empty state -->
-      <div class="empty-state" *ngIf="!loading && datasets.length === 0">
+      <div class="empty-state" *ngIf="!loading && (!activeDataset || datasets.length === 0)">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5"><path d="M3 3h18v18H3z"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
-        <p>No dataset selected. Upload a file or pick a dataset from the sidebar to get started.</p>
+        <p>No dataset selected. Upload a file or pick a dataset from the dropdown to get started.</p>
       </div>
 
       <!-- Explorer -->
-      <div class="explorer" *ngIf="datasets.length > 0">
+      <div class="explorer" *ngIf="activeDataset">
         <!-- Table detail -->
         <section class="detail">
           <div class="loading-rows" *ngIf="loadingRows">Loading rows...</div>
@@ -375,7 +375,7 @@ interface ChildTable {
 export class DataExplorerComponent implements OnInit, OnDestroy {
   datasets: Dataset[] = [];
   userId = environment.defaultUserId;
-  selected = 0;
+  selected = -1;
   search = '';
   loading = false;
   loadingRows = false;
@@ -460,11 +460,11 @@ export class DataExplorerComponent implements OnInit, OnDestroy {
     this.updateFilteredDatasets();
     this.loading = false;
     if (this.datasets.length > 0) {
-      // Keep the dataset the user was viewing; otherwise show the first of the active family.
+      // Keep the dataset the user was viewing; otherwise show nothing.
       let idx = prevId ? this.datasets.findIndex((d) => d.id === prevId) : -1;
-      this.select(idx < 0 ? 0 : idx);
+      if (idx >= 0) this.select(idx);
     } else {
-      this.selected = 0;
+      this.selected = -1;
       this.columns = []; this.columnTypes = []; this.rows = []; this.visibleRows = [];
     }
   }

@@ -1,7 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 import { WidgetSpec } from '@features/dashboard-builder/widget-tile.component';
 
-interface DraftSnapshot { widgets: WidgetSpec[]; name: string; datasetKey: string; }
+interface DraftSnapshot { widgets: WidgetSpec[]; name: string; datasetKey: string; dashboardId: string; }
 
 /**
  * Holds the dashboard the builder is currently working on (its widgets, their grid layout and name)
@@ -11,13 +11,14 @@ interface DraftSnapshot { widgets: WidgetSpec[]; name: string; datasetKey: strin
  */
 @Injectable({ providedIn: 'root' })
 export class DashboardDraftService {
-  private static readonly KEY = 'dashboard_draft_v1';
+  private static readonly KEY = 'dashboard_draft_v2';
 
   readonly widgets = signal<WidgetSpec[]>([]);
   readonly name = signal<string>('Untitled dashboard');
   /** The active dataset-family key this draft was built on, so the builder can ignore a draft that
    *  belongs to a different dataset (or to none at all — a fresh session before any upload). */
   readonly datasetKey = signal<string>('');
+  readonly dashboardId = signal<string>('');
 
   constructor() {
     const saved = this.load();
@@ -25,15 +26,17 @@ export class DashboardDraftService {
       this.widgets.set(saved.widgets ?? []);
       this.name.set(saved.name || 'Untitled dashboard');
       this.datasetKey.set(saved.datasetKey || '');
+      this.dashboardId.set(saved.dashboardId || '');
     }
   }
 
   /** Replace the draft with the builder's current widgets (and optional dashboard name / dataset key). */
-  set(widgets: WidgetSpec[], name?: string, datasetKey?: string): void {
+  set(widgets: WidgetSpec[], name?: string, datasetKey?: string, dashboardId?: string): void {
     // Clone so later in-place layout edits on the builder don't mutate this snapshot unexpectedly.
     this.widgets.set(widgets.map(w => ({ ...w, layout: w.layout ? { ...w.layout } : undefined })));
     if (name !== undefined) this.name.set(name || 'Untitled dashboard');
     if (datasetKey !== undefined) this.datasetKey.set(datasetKey);
+    if (dashboardId !== undefined) this.dashboardId.set(dashboardId || '');
     this.persist();
   }
 
@@ -42,12 +45,18 @@ export class DashboardDraftService {
     this.widgets.set([]);
     this.name.set('Untitled dashboard');
     this.datasetKey.set('');
+    this.dashboardId.set('');
     try { sessionStorage.removeItem(DashboardDraftService.KEY); } catch { /* storage unavailable */ }
   }
 
   private persist(): void {
     try {
-      const snap: DraftSnapshot = { widgets: this.widgets(), name: this.name(), datasetKey: this.datasetKey() };
+      const snap: DraftSnapshot = { 
+        widgets: this.widgets(), 
+        name: this.name(), 
+        datasetKey: this.datasetKey(), 
+        dashboardId: this.dashboardId() 
+      };
       sessionStorage.setItem(DashboardDraftService.KEY, JSON.stringify(snap));
     } catch { /* storage unavailable — draft stays in-memory only */ }
   }

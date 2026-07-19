@@ -192,7 +192,8 @@
         <section class="center">
           <app-dashboard-canvas *ngIf="visibleWidgets.length"
             [widgets]="visibleWidgets" [editingId]="editingWidgetId" [readOnly]="false"
-            (remove)="removeWidget($event)" (edit)="editWidget($event)" (layoutChange)="onLayoutChange()" (dragStart)="saveStateForUndo()">
+            (remove)="removeWidget($event)" (edit)="editWidget($event)" (layoutChange)="onLayoutChange()" (dragStart)="saveStateForUndo()"
+            (drillChange)="onDrillChange()">
           </app-dashboard-canvas>
           <div class="view-empty" *ngIf="viewMode && !visibleWidgets.length">
             <p>This dashboard has no widgets yet.</p>

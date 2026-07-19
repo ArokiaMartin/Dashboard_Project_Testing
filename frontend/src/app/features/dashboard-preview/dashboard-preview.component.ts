@@ -151,10 +151,14 @@ export class DashboardPreviewComponent implements OnDestroy {
 
   /** Exit preview entirely → back to builder. */
   exit(): void {
+    const qp: Record<string, any> = { returnFromPreview: true };
+    if (this.draft.dashboardId()) {
+      qp['dashboardId'] = this.draft.dashboardId();
+    }
     if (document.fullscreenElement) {
-      document.exitFullscreen().then(() => this.router.navigate(['/builder']));
+      document.exitFullscreen().then(() => this.router.navigate(['/builder'], { queryParams: qp }));
     } else {
-      this.router.navigate(['/builder']);
+      this.router.navigate(['/builder'], { queryParams: qp });
     }
   }
 }

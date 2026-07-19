@@ -108,6 +108,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
   previewColumns: string[] = [];
   previewRows: (string | number)[][] = [];
   saveBusy = false;
+  isDrillDirty = false;
 
   // ---- unsaved-changes guard ----
   showUnsavedModal = false;
@@ -199,12 +200,14 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     // before any upload), is discarded so the builder starts clean. Skipped when opening a specific
     // saved dashboard from the route, which restores its own widgets instead.
     if (!this.pendingDashboardId) {
+      const isReturnFromPreview = this.route.snapshot.queryParamMap.get('returnFromPreview') === 'true';
       const draftMatchesActive = this.active.activeKey !== NO_ACTIVE_DATASET
         && this.draft.datasetKey() === this.active.activeKey;
-      if (draftMatchesActive && this.draft.widgets().length) {
+      
+      if (isReturnFromPreview && draftMatchesActive && this.draft.widgets().length) {
         this.committedWidgets = this.draft.widgets().map(w => ({ ...w }));
         this.widgetSeq = this.committedWidgets.reduce((max, w) => Math.max(max, w.id), 0);
-      } else if (!draftMatchesActive) {
+      } else {
         this.draft.clear();
       }
     }
@@ -228,8 +231,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
       // (a fresh session before any upload), activate an empty selection so the builder
       // starts clean instead of showing any leftover columns.
       if (!this.pendingDashboardId) {
-        const target = this.datasets.length ? this.activeSchemaDataset() : undefined;
-        await this.activateDatasetById(target ? target.id : '', true);
+        await this.activateDatasetById('', true);
       }
     } catch {
       this.compat.columns = [];
@@ -256,8 +258,14 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     return current ? this.active.familyKeyOf(current) : NO_ACTIVE_DATASET;
   }
 
+  private initialSchemaLoad = true;
+
   /** When the user switches the active dataset in the sidebar, rebuild on that schema. */
   private onActiveSchemaChanged(): void {
+    if (this.initialSchemaLoad) {
+      this.initialSchemaLoad = false;
+      return;
+    }
     if (this.pendingDashboardId) {
       return; // editing a specific saved dashboard
     }
@@ -381,6 +389,24 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     }
 
     this.dashboardLoadedFromRoute = true;
+
+    const isReturnFromPreview = this.route.snapshot.queryParamMap.get('returnFromPreview') === 'true';
+    if (isReturnFromPreview && this.draft.widgets().length) {
+      this.loadedDashboardName = this.draft.name();
+      this.committedWidgets = this.draft.widgets().map(w => ({ ...w }));
+      this.widgetSeq = this.committedWidgets.reduce((max, w) => Math.max(max, w.id), 0);
+      this.refreshPreview();
+      const datasetKey = this.draft.datasetKey();
+      if (datasetKey) {
+        const dataset = this.datasets.find(d => this.active.familyKeyOf(d) === datasetKey);
+        if (dataset) {
+          this.activateDatasetById(dataset.id, false);
+        }
+      }
+      this.showToast(`Restored preview draft for: ${this.loadedDashboardName}`);
+      return;
+    }
+
     this.dashboardService.getDashboardRecord(this.pendingDashboardId).subscribe({
       next: async (dashboard) => {
         this.loadedDashboardName = dashboard.name;
@@ -1151,10 +1177,11 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
 
   /** Persist grid moves/resizes from the canvas and mirror them into the preview draft. */
   onLayoutChange(): void { this.syncDraft(); }
+  onDrillChange(): void { this.isDrillDirty = true; this.syncDraft(); }
 
   /** Push the current canvas (widgets + layout + name) into the shared draft the Preview page renders. */
   private syncDraft(): void {
-    this.draft.set(this.committedWidgets, this.loadedDashboardName || 'Untitled dashboard', this.active.activeKey);
+    this.draft.set(this.committedWidgets, this.loadedDashboardName || 'Untitled dashboard', this.active.activeKey, this.pendingDashboardId || undefined);
   }
 
   /** Exit edit mode without changing the widget (it stays on the canvas as-is). */
@@ -1308,7 +1335,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     if (!this.pendingDashboardId) {
       return this.visibleWidgets.length > 0 || this.canSaveCurrentSelection();
     }
-    return this.undoStack.length > 0 || this.canSaveCurrentSelection();
+    return this.undoStack.length > 0 || this.isDrillDirty || this.canSaveCurrentSelection();
   }
 
   canSaveCurrentSelection(): boolean {
@@ -1449,6 +1476,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
         this.showToast('Dashboard saved to database.');
         this.undoStack = [];
         this.redoStack = [];
+        this.isDrillDirty = false;
         this.syncDraft();
       } catch (err) {
         this.saveBusy = false;
@@ -1631,6 +1659,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
       this.showSaveModal = false;
       this.undoStack = [];
       this.redoStack = [];
+      this.isDrillDirty = false;
       // Saved widgets now live in "My Dashboards" — clear the canvas (and the preview draft) so the
       // builder starts fresh and only ever shows the current (unsaved) work.
       this.committedWidgets = [];
