@@ -529,6 +529,37 @@ public class DatasetController {
         return ResponseEntity.ok(Map.of("message", "Dataset deleted"));
     }
 
+    /**
+     * Renames a dataset. The display name lives in {@code data_uploads.original_filename}; a dataset
+     * family can span several versioned uploads that share one backing table, so the new name is applied
+     * to every upload with the same {@code table_name} to keep the family label consistent everywhere.
+     */
+    @PatchMapping("/{uploadId}")
+    public ResponseEntity<Map<String, String>> renameDataset(@PathVariable UUID uploadId,
+                                                             @RequestBody Map<String, String> body) {
+        String newName = body == null ? null : body.get("name");
+        if (newName == null || newName.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Name is required"));
+        }
+        newName = newName.trim();
+
+        List<Map<String, Object>> meta = jdbcTemplate.queryForList(
+            "SELECT table_name FROM data_uploads WHERE id = ?",
+            uploadId
+        );
+        if (meta.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        String tableName = (String) meta.get(0).get("table_name");
+        jdbcTemplate.update(
+            "UPDATE data_uploads SET original_filename = ? WHERE table_name = ?",
+            newName, tableName
+        );
+
+        return ResponseEntity.ok(Map.of("message", "Dataset renamed", "name", newName));
+    }
+
     private String quoteIdentifier(String name) {
         return SqlIdentifier.quote(name);
     }

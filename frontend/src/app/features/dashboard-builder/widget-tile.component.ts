@@ -13,6 +13,16 @@ export interface GridLayout { x: number; y: number; w: number; h: number; }
 /** One hop in a drill-down path: the ancestor dimension field and the value the user clicked. */
 export interface DrillStep { field: string; value: string; }
 
+/** A user-defined WHERE filter built in the "Filters" panel (any column, type-aware operator). */
+export interface BuilderFilterRule {
+  id: number;
+  field: string;                       // display column name
+  type: 'string' | 'number' | 'date';
+  operator: string;                    // UI operator key (mapped to SQL when the query is built)
+  value: string;
+  value2: string;                      // second bound, used by "between"
+}
+
 /** Snapshot of the builder inputs that produced a widget, so it can be reloaded for editing. */
 export interface WidgetEditState {
   datasetIds: string[];
@@ -22,13 +32,16 @@ export interface WidgetEditState {
   activeLabels: string[];
   granularity: 'monthly' | 'quarterly' | 'half-yearly' | 'yearly';
   topNOption: 'all' | 'top3' | 'top5' | 'bottom3';
-  aggregation: 'sum' | 'avg' | 'min' | 'max';
+  aggregation: 'sum' | 'avg' | 'min' | 'max' | 'count';
   rangeMin: number | null;
   rangeMax: number | null;
   selPalette: number;
   legendPos: string;
   /** Ordered dimension columns to drill into, below the plotted dimension. Optional (older widgets have none). */
   drillPath?: string[];
+  /** User-defined column filters and how they combine. Optional (older widgets have none). */
+  filterRules?: BuilderFilterRule[];
+  filterCondition?: 'AND' | 'OR';
 }
 
 export interface WidgetSpec {

@@ -113,7 +113,6 @@
             <div class="custom-dropdown" *ngIf="visibleDatasets.length" [class.disabled]="loadingDatasets" (click)="toggleDsDropdown($event)">
               <div class="cd-value">
                 <span class="cd-value-name">{{ selectedDatasetName }}</span>
-                <span class="cd-value-rows" *ngIf="selectedDatasetRows != null">&middot; {{ selectedDatasetRows }} rows</span>
               </div>
               <div class="cd-arrow">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
@@ -128,7 +127,6 @@
                        [class.active]="d.id === selectedDatasetRowId"
                        (click)="selectDataset(d.id); dsDropdownOpen = false">
                     <span class="cd-item-name">{{ datasetLabel(d) }}</span>
-                    <span class="cd-item-rows">&middot; {{ d.row_count }} rows</span>
                   </div>
                   <div class="cd-empty" *ngIf="filteredVisibleDatasets.length === 0">No datasets match</div>
                 </div>
@@ -286,6 +284,7 @@
                   <option value="avg" [selected]="aggregation === 'avg'">Average</option>
                   <option value="min" [selected]="aggregation === 'min'">Min</option>
                   <option value="max" [selected]="aggregation === 'max'">Max</option>
+                  <option value="count" [selected]="aggregation === 'count'">Count</option>
                 </select>
               </div>
 
@@ -319,6 +318,45 @@
                   </div>
                 </div>
               </div>
+            </div>
+
+            <!-- general column filters (any column, type-aware operators) -->
+            <div class="filter-block adv-filters" *ngIf="hasColumns()">
+              <div class="filter-head">
+                <span class="section-label">FILTERS</span>
+                <div class="af-head-actions">
+                  <select class="filter-select af-cond" *ngIf="filterRules.length > 1" (change)="onFilterConditionChange($event)">
+                    <option value="AND" [selected]="filterCondition === 'AND'">Match all (AND)</option>
+                    <option value="OR" [selected]="filterCondition === 'OR'">Match any (OR)</option>
+                  </select>
+                  <button class="filter-reset" *ngIf="filterRules.length" (click)="clearAllFilterRules()">Clear all</button>
+                </div>
+              </div>
+
+              <div class="af-rule" *ngFor="let r of filterRules">
+                <select class="filter-select af-field" (change)="onFilterFieldChange(r, $event)" (click)="$event.stopPropagation()">
+                  <option *ngFor="let c of compatibleFilterColumns()" [value]="c.name" [selected]="c.name === r.field">{{ c.name }}</option>
+                </select>
+                <select class="filter-select af-op" (change)="onFilterOperatorChange(r, $event)" (click)="$event.stopPropagation()">
+                  <option *ngFor="let op of filterOperators(r.type)" [value]="op.value" [selected]="op.value === r.operator">{{ op.label }}</option>
+                </select>
+                <ng-container *ngIf="filterNeedsValue(r.operator)">
+                  <select class="filter-select af-val" *ngIf="filterUsesValueDropdown(r); else afValInput" (change)="onFilterValueChange(r, 1, $event)" (click)="$event.stopPropagation()">
+                    <option value="" [selected]="r.value === ''">Select value</option>
+                    <option *ngFor="let v of filterValueOptions(r.field)" [value]="v" [selected]="v === r.value">{{ v }}</option>
+                  </select>
+                  <ng-template #afValInput>
+                    <input class="range-input af-val" [type]="filterInputType(r.type)"
+                           placeholder="Value" [value]="r.value" (input)="onFilterValueChange(r, 1, $event)" (click)="$event.stopPropagation()" />
+                  </ng-template>
+                </ng-container>
+                <span class="range-sep" *ngIf="filterNeedsTwoValues(r.operator)">–</span>
+                <input class="range-input af-val" *ngIf="filterNeedsTwoValues(r.operator)" [type]="filterInputType(r.type)"
+                       placeholder="To" [value]="r.value2" (input)="onFilterValueChange(r, 2, $event)" (click)="$event.stopPropagation()" />
+                <button class="af-remove" title="Remove filter" (click)="removeFilterRule(r.id)">&times;</button>
+              </div>
+
+              <button class="af-add" (click)="addFilterRule()">+ Add filter</button>
             </div>
 
             <!-- compatible visualizations -->

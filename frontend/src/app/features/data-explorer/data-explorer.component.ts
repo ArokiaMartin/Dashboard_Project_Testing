@@ -6,7 +6,7 @@ import { Router } from '@angular/router';
 import { environment } from '@env/environment';
 import { UploadService } from '@core/services/upload.service';
 import { LayoutService } from '@core/services/layout.service';
-import { ActiveDatasetService } from '@core/services/active-dataset.service';
+import { ActiveDatasetService, NO_ACTIVE_DATASET } from '@core/services/active-dataset.service';
 import { Subscription } from 'rxjs';
 import { skip } from 'rxjs/operators';
 import Fuse from 'fuse.js';
@@ -57,14 +57,9 @@ interface ChildTable {
           <p class="sub" *ngIf="!loading && !activeDataset">No dataset uploaded yet</p>
         </div>
         <div class="head-actions">
-          <input #fileInput type="file" accept=".json,.csv,.xlsx,.xls" hidden (change)="onUploadSelect($event)" />
           <button class="btn ghost" (click)="refreshDatasets()">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 0 0 4.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 0 1-15.357-2m15.357 2H15"/></svg>
             Refresh
-          </button>
-          <button class="btn primary" (click)="fileInput.click()" [disabled]="uploading">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            {{ uploading ? 'Uploading…' : 'Upload' }}
           </button>
           <button class="btn primary" (click)="goToBuilder()" [disabled]="datasets.length === 0">
             Next: Dashboard Builder
@@ -85,7 +80,7 @@ interface ChildTable {
             <input class="ds-filter-search" placeholder="Search datasets..." [ngModel]="datasetSearch" (ngModelChange)="onDatasetSearch($event)" />
             <div class="ds-filter-list">
               <div class="ds-filter-item" *ngFor="let d of filteredDatasets" (click)="selectDatasetByIndex(datasets.indexOf(d))">
-                {{ dsName(d) }} &middot; {{ d.row_count }} rows
+                {{ dsName(d) }}
               </div>
               <div class="ds-filter-empty" *ngIf="filteredDatasets.length === 0">No datasets match</div>
             </div>
@@ -109,7 +104,7 @@ interface ChildTable {
             <!-- Empty state -->
       <div class="empty-state" *ngIf="!loading && (!activeDataset || datasets.length === 0)">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5"><path d="M3 3h18v18H3z"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
-        <p>No dataset selected. Upload a file or pick a dataset from the dropdown to get started.</p>
+        <p>No dataset selected. Pick a dataset from the dropdown to get started.</p>
       </div>
 
       <!-- Explorer -->
@@ -123,10 +118,13 @@ interface ChildTable {
               <div>
                 <div class="ds-title-row" *ngIf="activeDataset">
                   <h3 *ngIf="!editingTitle">{{ dsName(activeDataset) }}</h3>
-                  <button class="edit-btn" *ngIf="!editingTitle" (click)="startEditTitle(activeDataset)" title="Rename Dataset">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                  <button class="edit-btn" *ngIf="!editingTitle && !fullscreen" (click)="startEditTitle(activeDataset)" title="Rename dataset">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                   </button>
-                  <input *ngIf="editingTitle" class="edit-input" [value]="editTitleValue" (blur)="saveTitle(activeDataset, $event)" (keydown.enter)="saveTitle(activeDataset, $event)" (keydown.escape)="cancelEdit()" />
+                  <input *ngIf="editingTitle" class="edit-input" [value]="editTitleValue"
+                         (keydown.enter)="saveTitle(activeDataset, $event)"
+                         (keydown.escape)="cancelEdit()"
+                         (blur)="saveTitle(activeDataset, $event)" />
                 </div>
                 <span class="detail-meta">{{ visibleRows.length }} of {{ activeDataset.row_count }} rows · {{ columns.length }} columns</span>
               </div>
@@ -139,9 +137,6 @@ interface ChildTable {
                         [title]="fullscreen ? 'Exit full table view' : 'Expand to full table view'">
                   <svg *ngIf="!fullscreen" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
                   <svg *ngIf="fullscreen" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-                </button>
-                <button class="expand-btn" *ngIf="!fullscreen && activeDataset" (click)="startEditTitle(activeDataset)" title="Rename Dataset">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                 </button>
                 <button class="expand-btn" *ngIf="!fullscreen" (click)="deleteDataset(selected, $event)" title="Delete this dataset">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
@@ -460,9 +455,22 @@ export class DataExplorerComponent implements OnInit, OnDestroy {
     this.updateFilteredDatasets();
     this.loading = false;
     if (this.datasets.length > 0) {
-      // Keep the dataset the user was viewing; otherwise show nothing.
-      let idx = prevId ? this.datasets.findIndex((d) => d.id === prevId) : -1;
-      if (idx >= 0) this.select(idx);
+      // Prefer the app-wide active dataset (set when a file is uploaded, or picked elsewhere) so an
+      // upload renders here immediately. Fall back to the dataset the user was viewing, else show
+      // nothing (the clean-slate "No dataset selected" state before any upload).
+      let idx = -1;
+      if (this.active.activeKey !== NO_ACTIVE_DATASET) {
+        idx = this.datasets.findIndex((d) => this.active.familyKeyOf(d as any) === this.active.activeKey);
+      }
+      if (idx < 0 && prevId) {
+        idx = this.datasets.findIndex((d) => d.id === prevId);
+      }
+      if (idx >= 0) {
+        this.select(idx);
+      } else {
+        this.selected = -1;
+        this.columns = []; this.columnTypes = []; this.rows = []; this.visibleRows = [];
+      }
     } else {
       this.selected = -1;
       this.columns = []; this.columnTypes = []; this.rows = []; this.visibleRows = [];
@@ -568,16 +576,23 @@ export class DataExplorerComponent implements OnInit, OnDestroy {
   saveTitle(d: Dataset, event: Event) {
     const input = event.target as HTMLInputElement;
     const newName = input.value.trim();
-    if (newName) {
-      const key = this.active.familyKeyOf(d as any);
-      this.active.setCustomName(key, newName);
-      
-      // Update dropdown selection if it's matching this
-      if (this.datasetSearch === this.editTitleValue) {
-        this.datasetSearch = newName;
-      }
-    }
     this.editingTitle = false;
+    if (!newName || newName === this.dsName(d)) return;
+
+    this.uploadError = '';
+    // Persist the rename in the backend (updates data_uploads.original_filename for the whole family),
+    // then keep the local label in sync so the new name shows instantly across every version.
+    this.http.patch(`${environment.apiUrl}/datasets/${d.id}`, { name: newName }).subscribe({
+      next: () => {
+        const key = this.active.familyKeyOf(d as any);
+        this.active.setCustomName(key, newName);
+        if (this.datasetSearch === this.editTitleValue) {
+          this.datasetSearch = newName;
+        }
+        this.refreshDatasets();
+      },
+      error: () => { this.uploadError = `Could not rename "${this.dsName(d)}". Please try again.`; }
+    });
   }
 
   cancelEdit() {

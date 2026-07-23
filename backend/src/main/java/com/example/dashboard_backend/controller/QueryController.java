@@ -127,6 +127,9 @@ public class QueryController {
 
             for (JsonNode rule : rules) {
                 String field = quoteIdentifier(validateIdentifier(requiredText(rule, "field", "filter"), "filter field"));
+                String type = rule.hasNonNull("type") ? rule.get("type").asText().toLowerCase() : "string";
+                String fieldExpr = filterFieldExpression(field, type);
+                String bind = filterBindExpression(type);
                 String operator = cleanOperator(requiredText(rule, "operator", "filter"));
 
                 if (operator.equalsIgnoreCase("IS NULL") || operator.equalsIgnoreCase("IS NOT NULL")) {
@@ -152,14 +155,14 @@ public class QueryController {
 
                 } else if (operator.equalsIgnoreCase("BETWEEN")) {
 
-                    whereParts.add(field + " BETWEEN ? AND ?");
+                    whereParts.add(fieldExpr + " BETWEEN " + bind + " AND " + bind);
                     params.add(rule.get("from").asText());
                     params.add(rule.get("to").asText());
 
                 } else {
 
                     JsonNode valueNode = rule.get("value");
-                    whereParts.add(field + " " + operator + " ?");
+                    whereParts.add(fieldExpr + " " + operator + " " + bind);
                     params.add(valueOf(valueNode));
                 }
             }
@@ -325,6 +328,30 @@ public class QueryController {
             case "=", "!=", "<>", ">", "<", ">=", "<=", "IN", "BETWEEN", "LIKE", "IS NULL", "IS NOT NULL" ->
                 operator.toUpperCase();
             default -> throw new IllegalArgumentException("Invalid operator: " + operator);
+        };
+    }
+
+    /**
+     * Left-hand-side expression for a WHERE filter. Columns are stored as text, so numeric and date
+     * filters are cast to their real type first — otherwise comparisons run lexicographically
+     * (e.g. '9' > '1000'). Non-numeric / non-date values fall back to NULL so they are excluded.
+     */
+    private static String filterFieldExpression(String field, String type) {
+        return switch (type == null ? "string" : type.toLowerCase()) {
+            case "number" -> "CASE WHEN trim(" + field + "::text) ~ '^-?[0-9]+(\\.[0-9]+)?$' "
+                    + "THEN CAST(trim(" + field + "::text) AS NUMERIC) ELSE NULL END";
+            case "date" -> "CASE WHEN trim(" + field + "::text) ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' "
+                    + "THEN CAST(left(trim(" + field + "::text), 10) AS DATE) ELSE NULL END";
+            default -> field;
+        };
+    }
+
+    /** Placeholder for a filter's bound value, cast to match {@link #filterFieldExpression}'s type. */
+    private static String filterBindExpression(String type) {
+        return switch (type == null ? "string" : type.toLowerCase()) {
+            case "number" -> "CAST(? AS NUMERIC)";
+            case "date" -> "CAST(? AS DATE)";
+            default -> "?";
         };
     }
 

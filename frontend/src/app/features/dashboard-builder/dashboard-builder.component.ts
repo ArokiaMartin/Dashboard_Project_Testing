@@ -1,4 +1,4 @@
-import { Component, ElementRef, ViewChild, HostListener, OnInit, OnDestroy } from '@angular/core';
+import { Component, ElementRef, ViewChild, HostListener, OnInit, OnDestroy, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -6,7 +6,7 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom, Subject, Subscription } from 'rxjs';
 import { Chart, registerables } from 'chart.js';
-import { WidgetSpec, WidgetEditState, Series, buildChartConfig } from './widget-tile.component';
+import { WidgetSpec, WidgetEditState, BuilderFilterRule, Series, buildChartConfig } from './widget-tile.component';
 import { DashboardCanvasComponent, defaultGridLayout } from './dashboard-canvas.component';
 import { ChartCompatibilityService, Column, VizDef } from '@core/services/chart-compatibility.service';
 import { BackendIntegrationService, DatasetSummary } from '@core/services/backend-integration.service';
@@ -28,6 +28,39 @@ interface ChartMeta { t: WidgetSpec['chartType']; axis: 'x' | 'y'; fill: boolean
   styleUrls: ['./dashboard-builder.component.css']
 })
 export class DashboardBuilderComponent implements OnInit, OnDestroy {
+  /** Constant, per-type operator lists for the Filters panel. Held as a single static instance so the
+   *  operator <select>'s *ngFor always receives the same array reference across change-detection passes. */
+  private static readonly FILTER_OPERATORS: Record<'string' | 'number' | 'date', { value: string; label: string }[]> = {
+    number: [
+      { value: 'eq', label: '=' },
+      { value: 'neq', label: '\u2260' },
+      { value: 'gt', label: '>' },
+      { value: 'gte', label: '\u2265' },
+      { value: 'lt', label: '<' },
+      { value: 'lte', label: '\u2264' },
+      { value: 'between', label: 'Between' },
+      { value: 'empty', label: 'Is empty' },
+      { value: 'notempty', label: 'Is not empty' }
+    ],
+    date: [
+      { value: 'eq', label: 'On' },
+      { value: 'before', label: 'Before' },
+      { value: 'after', label: 'After' },
+      { value: 'between', label: 'Between' },
+      { value: 'empty', label: 'Is empty' },
+      { value: 'notempty', label: 'Is not empty' }
+    ],
+    string: [
+      { value: 'eq', label: 'Equals' },
+      { value: 'neq', label: 'Not equals' },
+      { value: 'contains', label: 'Contains' },
+      { value: 'starts', label: 'Starts with' },
+      { value: 'ends', label: 'Ends with' },
+      { value: 'empty', label: 'Is empty' },
+      { value: 'notempty', label: 'Is not empty' }
+    ]
+  };
+
   selectedCols: Column[] = [];
   selectedViz: string | null = null;
   /** Extra dimension columns (display names, ordered) to drill into below the plotted dimension. */
@@ -79,7 +112,11 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
   private displayToDb = new Map<string, string>();
   /** Cache of numeric column name → 'I' (integer) or 'D' (double), inferred from the loaded row values. */
   private numKind = new Map<string, 'I' | 'D'>();
-  /** The active dataset's upload id, used for server-side aggregate queries. */
+  /** Cache of column name → its distinct values (from the loaded rows), for the filter value pickers. */
+  private filterValueCache = new Map<string, string[]>();
+  /** Memoised result of compatibleFilterColumns(), keyed by the selectedCols reference, so the filter
+   *  field <select>'s *ngFor gets a stable array and doesn't rebuild its <option>s every change detection. */
+  private compatFilterColsCache: { src: Column[]; exclude?: string; out: Column[] } | null = null;
   private uploadId: string | null = null;
   /** Server-computed aggregation: dimension value → { measure → aggregated number }. Full dataset, no 500 cap. */
   private serverAgg: Map<string, Record<string, number>> | null = null;
@@ -109,6 +146,8 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
   previewRows: (string | number)[][] = [];
   saveBusy = false;
   isDrillDirty = false;
+  isLoadingPreview = false;
+  private refreshPromise: Promise<void> | null = null;
 
   // ---- unsaved-changes guard ----
   showUnsavedModal = false;
@@ -175,7 +214,8 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     private route: ActivatedRoute,
     private router: Router,
     private active: ActiveDatasetService,
-    private draft: DashboardDraftService
+    private draft: DashboardDraftService,
+    private zone: NgZone
   ) {
     this.vizCards = compat.vizTypes.map(v => ({ ...v, iconSafe: this.sanitizer.bypassSecurityTrustHtml(v.icon) }));
   }
@@ -216,6 +256,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.schemaSub?.unsubscribe();
+    if (this.filterRefreshTimeout) clearTimeout(this.filterRefreshTimeout);
   }
 
   /** Loads the list of datasets stored in the database for the picker. */
@@ -231,7 +272,10 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
       // (a fresh session before any upload), activate an empty selection so the builder
       // starts clean instead of showing any leftover columns.
       if (!this.pendingDashboardId) {
-        await this.activateDatasetById('', true);
+        // Render the currently-active dataset (e.g. the one just uploaded) so navigating to the
+        // builder after an upload shows its columns immediately; empty when nothing is active.
+        const target = this.activeSchemaDataset();
+        await this.activateDatasetById(target ? target.id : '', true);
       }
     } catch {
       this.compat.columns = [];
@@ -367,6 +411,12 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     this.colDropdownOpen = false;
   }
 
+  private closeAllDropdowns(): void {
+    this.dsDropdownOpen = false;
+    this.labelDropdownOpen = false;
+    this.colDropdownOpen = false;
+  }
+
   /** Single-select: make this dataset the one the builder works on, replacing any current selection. */
   async selectDataset(id: string): Promise<void> {
     if (this.selectedDatasetIds.length === 1 && this.selectedDatasetIds[0] === id) return;
@@ -441,6 +491,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     this.serverKpi = null;
     this.queryError = '';
     this.numKind.clear();
+    this.filterValueCache.clear();
     this.displayToDb.clear();
 
     if (!ids.length) {
@@ -659,17 +710,35 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
   }
 
   private async hydrateWidgetData(spec: WidgetSpec, dbConfig: Record<string, unknown>): Promise<WidgetSpec> {
+    console.log('[HYDRATE] Starting for viz:', spec.viz);
+    console.log('[HYDRATE] Query config:', JSON.stringify(dbConfig).substring(0, 200));
+
     if (!this.compat.usingRealData || !dbConfig['dataset']) {
       this.queryError = 'Select a dataset to load data from backend.';
       throw new Error('Dataset required for backend query execution');
     }
 
     try {
-      const response = await this.backend.executeQuery(dbConfig);
+      console.log('[HYDRATE] Executing backend query...');
+      // Execute query with 30 second timeout to prevent indefinite hanging
+      const queryPromise = this.backend.executeQuery(dbConfig);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Query timeout: Backend took too long to respond')), 30000)
+      );
+
+      console.log('[HYDRATE] Waiting for query response...');
+      const response = await Promise.race([queryPromise, timeoutPromise]) as any;
+      console.log('[HYDRATE] Query response received:', response.data?.length || 0, 'rows');
+
       this.queryError = '';
+      console.log('[HYDRATE] Hydrating from rows...');
       let hydrated = this.hydrateWidgetFromRows(spec, dbConfig, response.data ?? []);
+      console.log('[HYDRATE] Hydration complete for:', spec.viz);
+
       if (this.canOverlayVersions(hydrated)) {
+        console.log('[HYDRATE] Applying version overlay...');
         hydrated = await this.applyVersionOverlay(hydrated, dbConfig);
+        console.log('[HYDRATE] Version overlay complete');
       }
       return hydrated;
     } catch (err: unknown) {
@@ -677,6 +746,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
         ? (typeof err.error?.error === 'string' ? err.error.error : err.message)
         : (err instanceof Error ? err.message : 'Backend query failed.');
       this.queryError = `Execute query failed: ${message}`;
+      console.error('[HYDRATE] ERROR:', message, err);
       throw err instanceof Error ? err : new Error(message);
     }
   }
@@ -995,6 +1065,11 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
 
   toggleCol(c: Column) {
     if (!this.isSelected(c) && this.colDisabled(c)) return;   // can't add a disabled column
+    this.closeAllDropdowns();
+    if (this.filterRefreshTimeout) {
+      clearTimeout(this.filterRefreshTimeout);
+      this.filterRefreshTimeout = undefined;
+    }
     if (this.isSelected(c)) {
       this.selectedCols = this.selectedCols.filter(s => s.name !== c.name);
     } else if (this.selectedCols.length < 4) {
@@ -1004,21 +1079,51 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     if (this.selectedViz && !this.allowed(this.selectedViz)) this.selectedViz = null;
     this.pruneDrillPath();
     this.syncLabelFilter();
+    this.pruneFilterRules();
     this.refreshServerAgg();
     this.refreshPreview();
   }
 
   pickViz(key: string) {
     if (!this.allowed(key)) return;
+    this.closeAllDropdowns();
+    // Cancel any pending debounced filter refresh - chart selection has priority
+    if (this.filterRefreshTimeout) {
+      clearTimeout(this.filterRefreshTimeout);
+      this.filterRefreshTimeout = undefined;
+    }
     this.selectedViz = key;
     this.refreshServerAgg();
     this.refreshPreview();
   }
 
-  private async refreshPreview() {
+  private refreshPreview() {
+    if (this.refreshPromise) {
+      console.log('[QUEUE] Refresh already in progress, queueing new refresh');
+    }
+
+    this.refreshPromise = (this.refreshPromise ?? Promise.resolve()).then(
+      async () => {
+        await this._doRefreshPreview();
+        this.refreshPromise = null;
+      },
+      () => {
+        this.refreshPromise = null;
+      }
+    );
+  }
+
+  private async _doRefreshPreview() {
+    console.log('[REFRESH] Starting refresh preview');
     this.destroyChart();
     this.queryError = '';
-    if (!this.selectedViz || !this.allowed(this.selectedViz)) return;
+    this.isLoadingPreview = true;
+
+    if (!this.selectedViz || !this.allowed(this.selectedViz)) {
+      console.log('[REFRESH] Viz not allowed, skipping');
+      this.isLoadingPreview = false;
+      return;
+    }
 
     if (!this.compat.usingRealData) {
       this.previewSpec = null;
@@ -1026,33 +1131,47 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
       this.previewColumns = [];
       this.previewRows = [];
       this.queryError = 'Select at least one dataset. Preview only uses backend query results.';
+      this.isLoadingPreview = false;
       return;
     }
 
-    let spec = this.specFor();
-    const queryConfig = this.buildQueryBuilderConfig(this.selectedViz);
-    spec.databaseConfig = queryConfig;
     try {
+      let spec = this.specFor();
+      const queryConfig = this.buildQueryBuilderConfig(this.selectedViz);
+      spec.databaseConfig = queryConfig;
+
       spec = await this.hydrateWidgetData(spec, queryConfig);
-    } catch {
+
+      this.previewSpec = spec;
+      if (this.selectedViz === 'kpi') {
+        this.previewKpi = spec.kpiTotal ?? 0;
+      } else if (this.selectedViz === 'table') {
+        this.previewColumns = spec.tableColumns ?? [];
+        this.previewRows = spec.tableRows ?? [];
+      } else if (this._canvas) {
+        console.log('[REFRESH] Scheduling chart render');
+        await this.renderChartAsync(spec);
+        console.log('[REFRESH] Chart render complete');
+      }
+      console.log('[REFRESH] Refresh complete');
+    } catch (err) {
       this.previewSpec = null;
       this.previewKpi = 0;
       this.previewColumns = [];
       this.previewRows = [];
-      return;
+      console.error('[REFRESH] Error:', err);
+    } finally {
+      this.isLoadingPreview = false;
     }
+  }
 
-    this.previewSpec = spec;
-    if (this.selectedViz === 'kpi') {
-      this.previewKpi = spec.kpiTotal ?? 0;
-      return;
-    }
-    if (this.selectedViz === 'table') {
-      this.previewColumns = spec.tableColumns ?? [];
-      this.previewRows = spec.tableRows ?? [];
-      return;
-    }
-    if (this._canvas) setTimeout(() => this.renderChart(spec), 0);
+  private renderChartAsync(spec: WidgetSpec): Promise<void> {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        this.renderChart(spec);
+        resolve();
+      }, 0);
+    });
   }
 
   startOver() {
@@ -1062,6 +1181,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     this.previewKpi = 0; this.previewColumns = []; this.previewRows = [];
     this.filterKey = null; this.activeLabels = []; this.granularity = 'monthly'; this.topNOption = 'all';
     this.aggregation = 'sum'; this.rangeMin = null; this.rangeMax = null; this.chipSearch = ''; this.chipsExpanded = false;
+    this.filterRules = []; this.filterCondition = 'AND';
     this.serverAgg = null; this.serverLabels = null; this.serverKpi = null;
     this.columnSearch = '';
     this.previewSpec = null;
@@ -1201,7 +1321,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
 
     const ds = this.datasets.find(d => d.id === cfg.dataset || d.table_name === cfg.dataset);
     const aggRaw = String(measures[0]?.aggregation ?? 'sum').toLowerCase();
-    const aggregation = (['sum', 'avg', 'min', 'max'].includes(aggRaw) ? aggRaw : 'sum') as WidgetEditState['aggregation'];
+    const aggregation = (['sum', 'avg', 'min', 'max', 'count'].includes(aggRaw) ? aggRaw : 'sum') as WidgetEditState['aggregation'];
 
     const rules: any[] = cfg.filters?.rules ?? [];
     let activeLabels: string[] = [];
@@ -1252,7 +1372,9 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
       rangeMax: this.rangeMax,
       selPalette: this.selPalette,
       legendPos: this.legendPos,
-      drillPath: [...this.validDrillNames()]
+      drillPath: [...this.validDrillNames()],
+      filterRules: this.filterRules.map(r => ({ ...r })),
+      filterCondition: this.filterCondition
     };
   }
 
@@ -1314,6 +1436,9 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     this.rangeMax = es.rangeMax;
     this.selPalette = es.selPalette;
     this.legendPos = es.legendPos;
+    this.filterRules = (es.filterRules ?? []).map(r => ({ ...r }));
+    this.filterCondition = es.filterCondition ?? 'AND';
+    this.filterRuleSeq = this.filterRules.reduce((m, r) => Math.max(m, r.id), 0);
 
     // Older / DB-restored widgets may have no stored label filter — rebuild it so the axis isn't empty.
     if (!this.activeLabels.length) {
@@ -1374,11 +1499,19 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
 
     const primaryMeasure = viz === 'scatter' || viz === 'table' ? null : this.measureCols()[0]?.name;
     if (primaryMeasure && this.rangeMin != null) {
-      rules.push({ field: this.toDbField(primaryMeasure), operator: '>=', value: this.rangeMin });
+      rules.push({ field: this.toDbField(primaryMeasure), type: 'number', operator: '>=', value: this.rangeMin });
     }
     if (primaryMeasure && this.rangeMax != null) {
-      rules.push({ field: this.toDbField(primaryMeasure), operator: '<=', value: this.rangeMax });
+      rules.push({ field: this.toDbField(primaryMeasure), type: 'number', operator: '<=', value: this.rangeMax });
     }
+
+    // User-defined column filters from the Filters panel (any column, type-aware operators).
+    const customRules = this.buildCustomFilterRules();
+    for (const r of customRules) rules.push(r);
+    // The chart-scoped label/range rules always AND; when the user adds their own filters they choose
+    // how those combine. Only switch the whole clause to OR when the sole rules are user filters.
+    const condition = (this.filterCondition === 'OR' && customRules.length && rules.length === customRules.length)
+      ? 'OR' : 'AND';
 
     let sorting: Array<Record<string, unknown>> = [];
     let pagination: Record<string, unknown> = { top: 100, offset: 0 };
@@ -1429,7 +1562,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
       compareDataset: this.compareVersionId || undefined,
       dimensions,
       measures,
-      filters: { condition: 'AND', rules },
+      filters: { condition, rules },
       having: [],
       sorting,
       pagination,
@@ -1835,6 +1968,16 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
     this.drillPathNames = this.drillPathNames.filter(n => valid.has(n));
   }
 
+  /** Remove filter rules that reference fields no longer in the selected columns. */
+  private pruneFilterRules() {
+    const validFields = new Set(this.selectedCols.map(c => c.name));
+    const before = this.filterRules.length;
+    this.filterRules = this.filterRules.filter(r => validFields.has(r.field));
+    if (this.filterRules.length < before) {
+      this.debouncedRefreshPreview();
+    }
+  }
+
   /** Drill names still valid for the current selection, in order — what actually gets saved. */
   private validDrillNames(): string[] {
     const valid = new Set(this.drillCandidates().map(c => c.name));
@@ -1845,12 +1988,17 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
   activeLabels: string[] = [];
   granularity: 'monthly' | 'quarterly' | 'half-yearly' | 'yearly' = 'monthly';
   topNOption: 'all' | 'top3' | 'top5' | 'bottom3' = 'all';
-  aggregation: 'sum' | 'avg' | 'min' | 'max' = 'sum';
+  aggregation: 'sum' | 'avg' | 'min' | 'max' | 'count' = 'sum';
   rangeMin: number | null = null;
   rangeMax: number | null = null;
   chipSearch = '';
   chipsExpanded = false;
   private filterKey: string | null = null;
+  // ---- general column filters (any column, type-aware operators) ----
+  filterRules: BuilderFilterRule[] = [];
+  filterCondition: 'AND' | 'OR' = 'AND';
+  private filterRuleSeq = 0;
+  private filterRefreshTimeout?: any;
   private static readonly MONTH_NAMES = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
   /** Rows-per-category to simulate, so aggregation choices are meaningful even on this demo's one-value dataset. */
   private readonly sampleSize = 4;
@@ -1959,6 +2107,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
       case 'avg': return Math.round(sum / values.length);
       case 'min': return Math.min(...values);
       case 'max': return Math.max(...values);
+      case 'count': return values.length;
       default: return sum;
     }
   }
@@ -2003,7 +2152,7 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
       this.activeLabels = [...this.activeLabels, label];
     }
     this.topNOption = 'all';
-    this.refreshPreview();
+    this.debouncedRefreshPreview();
   }
 
   toggleLabelDropdown(event: Event): void {
@@ -2030,31 +2179,31 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
   clearLabelFilter() {
     this.activeLabels = [];
     this.topNOption = 'all';
-    this.refreshPreview();
+    this.debouncedRefreshPreview();
   }
 
   resetFilter() {
     this.topNOption = 'all';
     this.activeLabels = this.allLabelsForFilter();
-    this.refreshPreview();
+    this.debouncedRefreshPreview();
   }
 
   onGranularityChange(e: Event) {
     this.granularity = (e.target as HTMLSelectElement).value as typeof this.granularity;
     this.filterKey = null;
     this.syncLabelFilter();
-    this.refreshPreview();
+    this.debouncedRefreshPreview();
   }
 
   onTopNChange(e: Event) {
     this.topNOption = (e.target as HTMLSelectElement).value as typeof this.topNOption;
-    this.refreshPreview();
+    this.debouncedRefreshPreview();
   }
 
   onAggregationChange(e: Event) {
     this.aggregation = (e.target as HTMLSelectElement).value as typeof this.aggregation;
     this.refreshServerAgg();
-    this.refreshPreview();
+    this.debouncedRefreshPreview();
   }
 
   onRangeInput(which: 'min' | 'max', e: Event) {
@@ -2065,13 +2214,179 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
 
   applyRange() {
     this.topNOption = 'all';
-    this.refreshPreview();
+    this.debouncedRefreshPreview();
   }
 
   clearRange() {
     this.rangeMin = null;
     this.rangeMax = null;
     this.resetFilter();
+  }
+
+  // ---- general column filters (any column, type-aware operators) ----
+
+  /** Only the columns already chosen for the chart are offered as filter fields — the filter field
+   *  selection comes after the actual column selection, so it stays scoped to those compatible fields
+   *  (this also keeps the dropdown small on very wide datasets). */
+  availableFilterColumns(): Column[] { return this.selectedCols; }
+
+  /** Filter columns compatible with a specific field type, excluding the field itself when editing.
+   *  Memoised on the selectedCols reference so the template *ngFor receives a stable array (a fresh array
+   *  every call would make Angular tear down and rebuild the <option> DOM on every change-detection pass). */
+  compatibleFilterColumns(excludeField?: string): Column[] {
+    const cache = this.compatFilterColsCache;
+    if (cache && cache.src === this.selectedCols && cache.exclude === excludeField) return cache.out;
+    const out = this.selectedCols.filter(c => !excludeField || c.name !== excludeField);
+    this.compatFilterColsCache = { src: this.selectedCols, exclude: excludeField, out };
+    return out;
+  }
+
+  /** Operators offered for a column, tailored to its data type. Returns cached constant arrays so the
+   *  operator <select>'s *ngFor gets a stable reference and doesn't rebuild every change-detection pass. */
+  filterOperators(type: 'string' | 'number' | 'date'): { value: string; label: string }[] {
+    return DashboardBuilderComponent.FILTER_OPERATORS[type];
+  }
+
+  filterNeedsValue(op: string): boolean { return op !== 'empty' && op !== 'notempty'; }
+  filterNeedsTwoValues(op: string): boolean { return op === 'between'; }
+  filterInputType(type: 'string' | 'number' | 'date'): string {
+    return type === 'number' ? 'number' : type === 'date' ? 'date' : 'text';
+  }
+
+  /** Distinct values of a selected field (from the loaded rows), for the exact-match value dropdown.
+   *  Cached per field and capped so a high-cardinality column can't bloat the picker. */
+  filterValueOptions(field: string): string[] {
+    if (!field) return [];
+    const cached = this.filterValueCache.get(field);
+    if (cached) return cached;
+    const out: string[] = [];
+    const rows = this.realRows;
+    if (rows && rows.length) {
+      const seen = new Set<string>();
+      for (const r of rows) {
+        const v = r[field];
+        if (v === null || v === undefined || v === '') continue;
+        const s = String(v);
+        if (seen.has(s)) continue;
+        seen.add(s);
+        out.push(s);
+        if (out.length >= 200) break;   // keep the dropdown usable for high-cardinality columns
+      }
+      out.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    }
+    this.filterValueCache.set(field, out);
+    return out;
+  }
+
+  /** Check if field has distinct values for dropdown without fetching them repeatedly. */
+  filterFieldHasValues(field: string): boolean {
+    if (!field) return false;
+    if (this.filterValueCache.has(field)) return this.filterValueCache.get(field)!.length > 0;
+    if (!this.realRows || !this.realRows.length) return false;
+    for (const r of this.realRows) {
+      const v = r[field];
+      if (v !== null && v !== undefined && v !== '') return true;
+    }
+    return false;
+  }
+
+  /** Exact-match operators (= / ≠) offer a dropdown of the field's known values instead of a free text box. */
+  filterUsesValueDropdown(rule: BuilderFilterRule): boolean {
+    return (rule.operator === 'eq' || rule.operator === 'neq') && this.filterFieldHasValues(rule.field);
+  }
+
+  addFilterRule(): void {
+    const col = this.availableFilterColumns()[0];
+    if (!col) return;
+    this.filterRules = [...this.filterRules, {
+      id: ++this.filterRuleSeq,
+      field: col.name,
+      type: col.type,
+      operator: 'eq',
+      value: '',
+      value2: ''
+    }];
+  }
+
+  private debouncedRefreshPreview(): void {
+    if (this.filterRefreshTimeout) clearTimeout(this.filterRefreshTimeout);
+    this.filterRefreshTimeout = setTimeout(() => {
+      this.refreshPreview();
+      this.filterRefreshTimeout = undefined;
+    }, 500);
+  }
+
+  removeFilterRule(id: number): void {
+    this.filterRules = this.filterRules.filter(r => r.id !== id);
+    this.debouncedRefreshPreview();
+  }
+
+  clearAllFilterRules(): void {
+    if (!this.filterRules.length) return;
+    this.filterRules = [];
+    this.debouncedRefreshPreview();
+  }
+
+  onFilterFieldChange(rule: BuilderFilterRule, e: Event): void {
+    const name = (e.target as HTMLSelectElement).value;
+    const col = this.availableFilterColumns().find(c => c.name === name);
+    if (!col) return;
+    rule.field = col.name;
+    rule.type = col.type;
+    rule.operator = 'eq';
+    rule.value = '';
+    rule.value2 = '';
+    this.debouncedRefreshPreview();
+  }
+
+  onFilterOperatorChange(rule: BuilderFilterRule, e: Event): void {
+    rule.operator = (e.target as HTMLSelectElement).value;
+    if (!this.filterNeedsTwoValues(rule.operator)) rule.value2 = '';
+    if (!this.filterNeedsValue(rule.operator)) { rule.value = ''; rule.value2 = ''; }
+    this.debouncedRefreshPreview();
+  }
+
+  onFilterValueChange(rule: BuilderFilterRule, which: 1 | 2, e: Event): void {
+    const v = (e.target as HTMLInputElement).value;
+    if (which === 2) rule.value2 = v; else rule.value = v;
+    this.debouncedRefreshPreview();
+  }
+
+  onFilterConditionChange(e: Event): void {
+    this.filterCondition = (e.target as HTMLSelectElement).value === 'OR' ? 'OR' : 'AND';
+    this.debouncedRefreshPreview();
+  }
+
+  /** Converts the completed filter rules into backend WHERE clauses (skips incomplete rows). */
+  private buildCustomFilterRules(): Array<Record<string, unknown>> {
+    const out: Array<Record<string, unknown>> = [];
+    for (const r of this.filterRules) {
+      const field = this.toDbField(r.field);
+      const type = r.type;
+      const op = r.operator;
+      if (op === 'empty') { out.push({ field, type, operator: 'IS NULL' }); continue; }
+      if (op === 'notempty') { out.push({ field, type, operator: 'IS NOT NULL' }); continue; }
+      if (op === 'between') {
+        if (r.value === '' || r.value2 === '') continue;
+        out.push({ field, type, operator: 'BETWEEN', from: r.value, to: r.value2 });
+        continue;
+      }
+      if (r.value === '') continue;
+      switch (op) {
+        case 'eq': out.push({ field, type, operator: '=', value: r.value }); break;
+        case 'neq': out.push({ field, type, operator: '!=', value: r.value }); break;
+        case 'gt': out.push({ field, type, operator: '>', value: r.value }); break;
+        case 'gte': out.push({ field, type, operator: '>=', value: r.value }); break;
+        case 'lt': out.push({ field, type, operator: '<', value: r.value }); break;
+        case 'lte': out.push({ field, type, operator: '<=', value: r.value }); break;
+        case 'before': out.push({ field, type, operator: '<', value: r.value }); break;
+        case 'after': out.push({ field, type, operator: '>', value: r.value }); break;
+        case 'contains': out.push({ field, operator: 'LIKE', value: `%${r.value}%` }); break;
+        case 'starts': out.push({ field, operator: 'LIKE', value: `${r.value}%` }); break;
+        case 'ends': out.push({ field, operator: 'LIKE', value: `%${r.value}` }); break;
+      }
+    }
+    return out;
   }
 
   private filteredChipList(): string[] {
@@ -2125,10 +2440,29 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
   private destroyChart() { if (this.chart) { this.chart.destroy(); this.chart = undefined; } }
 
   private renderChart(specOverride?: WidgetSpec) {
-    if (!this._canvas || !this.isChartViz(this.selectedViz) || !this.allowed(this.selectedViz!)) return;
-    this.destroyChart();
-    const spec = specOverride ?? this.previewSpec ?? this.specFor();
-    const cfg = buildChartConfig(spec, false);
-    this.chart = new Chart(this._canvas.getContext('2d')!, cfg);
+    console.log('[RENDER] Starting chart render for viz:', this.selectedViz);
+    if (!this._canvas || !this.isChartViz(this.selectedViz) || !this.allowed(this.selectedViz!)) {
+      console.log('[RENDER] Chart render skipped - canvas/viz invalid');
+      return;
+    }
+    try {
+      this.destroyChart();
+      console.log('[RENDER] Chart destroyed, building new config...');
+      const spec = specOverride ?? this.previewSpec ?? this.specFor();
+      console.log('[RENDER] Building chart config...');
+      const cfg = buildChartConfig(spec, false);
+      console.log('[RENDER] Chart config built, creating Chart instance...');
+      // Create the chart OUTSIDE Angular's zone. Chart.js uses requestAnimationFrame (animations) and a
+      // ResizeObserver (responsive:true); if it runs inside the zone every frame/resize triggers change
+      // detection. With a filters row present that re-materialises its *ngFor <option> DOM each tick, the
+      // resulting resize↔CD feedback loop pegs the main thread. Running outside the zone breaks the loop.
+      this.zone.runOutsideAngular(() => {
+        this.chart = new Chart(this._canvas!.getContext('2d')!, cfg);
+      });
+      console.log('[RENDER] Chart instance created successfully');
+    } catch (err) {
+      console.error('[RENDER] ERROR rendering chart:', err);
+      throw err;
+    }
   }
 }
