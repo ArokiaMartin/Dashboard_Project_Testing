@@ -4,6 +4,8 @@ import { RouterLink, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { DashboardService, DashboardRecord } from '@core/services/dashboard.service';
 import { ActiveDatasetService } from '@core/services/active-dataset.service';
+import { ThemeService } from '@core/services/theme.service';
+import { Subscription } from 'rxjs';
 import { Chart, registerables } from 'chart.js';
 import Fuse from 'fuse.js';
 
@@ -158,23 +160,24 @@ interface DashCard {
 
     /* Welcome */
     .welcome {
-      background: white; border: 1px solid #e8ebf2; border-radius: 16px;
+      background: var(--bg-surface, white); border: 1px solid var(--border-color, #e8ebf2); border-radius: 16px;
       padding: 34px 36px; margin-bottom: 22px; position: relative; overflow: hidden;
       display: flex; justify-content: space-between; align-items: center;
+      box-shadow: var(--card-shadow);
     }
     .welcome-text { max-width: 560px; z-index: 2; }
-    .welcome h1 { margin: 0 0 10px; font-size: 30px; font-weight: 800; color: #0f172a; letter-spacing: -0.6px; }
-    .welcome p { margin: 0 0 22px; font-size: 14px; color: #64748b; line-height: 1.6; }
+    .welcome h1 { margin: 0 0 10px; font-size: 30px; font-weight: 800; color: var(--text-primary, #0f172a); letter-spacing: -0.6px; }
+    .welcome p { margin: 0 0 22px; font-size: 14px; color: var(--text-secondary, #64748b); line-height: 1.6; }
     .welcome-actions { display: flex; gap: 12px; }
     .welcome-art { width: 220px; height: 140px; flex-shrink: 0; opacity: 0.9; }
 
     .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; border: 1px solid transparent; transition: all 0.18s ease; }
-    .btn.primary { background: #2563eb; color: white; }
-    .btn.primary:hover { background: #1d4ed8; }
-    .btn.ghost { background: white; border-color: #e2e8f0; color: #334155; }
-    .btn.ghost:hover { border-color: #cbd5e1; }
-    .btn.light { background: #f1f5f9; color: #334155; padding: 9px 18px; font-size: 13px; }
-    .btn.light:hover { background: #e2e8f0; }
+    .btn.primary { background: var(--accent-primary, #2563eb); color: white; }
+    .btn.primary:hover { background: var(--accent-hover, #1d4ed8); }
+    .btn.ghost { background: var(--bg-surface, white); border-color: var(--border-color, #e2e8f0); color: var(--text-secondary, #334155); }
+    .btn.ghost:hover { border-color: var(--accent-primary, #cbd5e1); color: var(--accent-primary, #2563eb); background: var(--bg-hover); }
+    .btn.light { background: var(--bg-subtle, #f1f5f9); color: var(--text-secondary, #334155); padding: 9px 18px; font-size: 13px; }
+    .btn.light:hover { background: var(--bg-hover, #e2e8f0); }
 
     /* Layout Split */
     .home-layout { display: flex; gap: 24px; align-items: flex-start; }
@@ -182,42 +185,42 @@ interface DashCard {
     .right-col { width: 420px; flex-shrink: 0; display: flex; flex-direction: column; gap: 24px; }
     
     /* Blocks */
-    .chart-block, .dash-block { background: white; border: 1px solid #e8ebf2; border-radius: 16px; padding: 22px; }
+    .chart-block, .dash-block { background: var(--bg-surface, white); border: 1px solid var(--border-color, #e8ebf2); border-radius: 16px; padding: 22px; box-shadow: var(--card-shadow); }
     .block-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-    .block-head h3 { margin: 0; font-size: 16px; font-weight: 700; color: #0f172a; }
-    .link { color: #2563eb; font-size: 13px; font-weight: 600; text-decoration: none; }
-    .link:hover { color: #1d4ed8; }
+    .block-head h3 { margin: 0; font-size: 16px; font-weight: 700; color: var(--text-primary, #0f172a); }
+    .link { color: var(--accent-primary, #2563eb); font-size: 13px; font-weight: 600; text-decoration: none; }
+    .link:hover { color: var(--accent-hover, #1d4ed8); }
     
     .chart-filters { display: flex; gap: 10px; align-items: center; }
-    .filter-select { padding: 6px 10px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px; font-weight: 600; color: #475569; background: white; cursor: pointer; outline: none; }
-    .filter-select:focus { border-color: #2563eb; }
+    .filter-select { padding: 6px 10px; border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--text-secondary, #475569); background: var(--bg-subtle, white); cursor: pointer; outline: none; }
+    .filter-select:focus { border-color: var(--accent-primary, #2563eb); }
 
     .custom-ds-filter { position: relative; }
-    .ds-filter-trigger { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px; font-weight: 600; color: #475569; background: white; cursor: pointer; }
-    .ds-filter-trigger:hover { border-color: #cbd5e1; }
-    .ds-filter-menu { position: absolute; top: calc(100% + 4px); right: 0; width: 220px; background: white; border: 1px solid #e8ebf2; border-radius: 8px; box-shadow: 0 12px 30px rgba(15,23,42,0.1); z-index: 10; display: flex; flex-direction: column; padding: 6px; }
-    .ds-filter-search { padding: 6px 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 12px; outline: none; margin-bottom: 6px; }
-    .ds-filter-search:focus { border-color: #2563eb; }
+    .ds-filter-trigger { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--text-secondary, #475569); background: var(--bg-subtle, white); cursor: pointer; }
+    .ds-filter-trigger:hover { border-color: var(--accent-primary, #cbd5e1); }
+    .ds-filter-menu { position: absolute; top: calc(100% + 4px); right: 0; width: 220px; background: var(--bg-surface, white); border: 1px solid var(--border-color, #e8ebf2); border-radius: 8px; box-shadow: var(--card-shadow); z-index: 10; display: flex; flex-direction: column; padding: 6px; }
+    .ds-filter-search { padding: 6px 10px; border: 1px solid var(--border-color, #e2e8f0); border-radius: 6px; font-size: 12px; outline: none; margin-bottom: 6px; background: var(--bg-subtle); color: var(--text-primary); }
+    .ds-filter-search:focus { border-color: var(--accent-primary, #2563eb); }
     .ds-filter-list { max-height: 200px; overflow-y: auto; }
-    .ds-filter-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: 12.5px; font-weight: 600; color: #475569; border-radius: 6px; cursor: pointer; }
-    .ds-filter-item:hover { background: #f1f5f9; color: #2563eb; }
+    .ds-filter-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: 12.5px; font-weight: 600; color: var(--text-secondary, #475569); border-radius: 6px; cursor: pointer; }
+    .ds-filter-item:hover { background: var(--bg-hover, #f1f5f9); color: var(--accent-primary, #2563eb); }
     .ds-filter-item input[type="checkbox"] { margin: 0; cursor: pointer; width: 14px; height: 14px; }
-    .ds-filter-empty { padding: 8px 10px; font-size: 12px; color: #94a3b8; text-align: center; }
+    .ds-filter-empty { padding: 8px 10px; font-size: 12px; color: var(--text-muted, #94a3b8); text-align: center; }
     
     .chart-container { width: 100%; height: 380px; position: relative; margin-top: 10px; }
 
     /* Mini Dashboard Cards */
     .dash-list { display: flex; flex-direction: column; gap: 12px; }
-    .dash-card-mini { display: flex; align-items: center; gap: 14px; background: white; border: 1px solid #e8ebf2; border-radius: 12px; padding: 12px; cursor: pointer; transition: all 0.2s ease; }
-    .dash-card-mini:hover { box-shadow: 0 8px 24px rgba(15,23,42,0.08); transform: translateY(-2px); border-color: #dbe4f0; }
+    .dash-card-mini { display: flex; align-items: center; gap: 14px; background: var(--bg-surface, white); border: 1px solid var(--border-color, #e8ebf2); border-radius: 12px; padding: 12px; cursor: pointer; transition: all 0.2s ease; }
+    .dash-card-mini:hover { box-shadow: var(--card-shadow); transform: translateY(-2px); border-color: var(--accent-primary, #dbe4f0); }
     .thumb-mini { width: 68px; height: 50px; border-radius: 8px; flex-shrink: 0; position: relative; overflow: hidden; }
     .thumb-mini .thumb-svg { position: absolute; bottom: -2px; left: -2px; width: 110%; height: 75%; }
     .dash-info { flex: 1; min-width: 0; }
-    .dash-info h4 { margin: 0 0 4px; font-size: 14px; font-weight: 700; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .dash-edited { font-size: 12px; color: #94a3b8; }
+    .dash-info h4 { margin: 0 0 4px; font-size: 14px; font-weight: 700; color: var(--text-primary, #0f172a); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dash-edited { font-size: 12px; color: var(--text-muted, #94a3b8); }
     
-    .dash-empty-mini { padding: 24px 20px; text-align: center; color: #94a3b8; border: 1.5px dashed #e2e8f0; border-radius: 12px; }
-    .dash-empty-mini p { margin: 0 0 4px; font-size: 14px; font-weight: 700; color: #475569; }
+    .dash-empty-mini { padding: 24px 20px; text-align: center; color: var(--text-muted, #94a3b8); border: 1.5px dashed var(--border-color, #e2e8f0); border-radius: 12px; }
+    .dash-empty-mini p { margin: 0 0 4px; font-size: 14px; font-weight: 700; color: var(--text-secondary, #475569); }
     .dash-empty-mini span { font-size: 12.5px; }
 
     @media (max-width: 1000px) {
@@ -255,13 +258,22 @@ export class HomeComponent implements OnInit, AfterViewInit, OnDestroy {
     'linear-gradient(135deg,#065f46,#10b981)'
   ];
 
+  private themeSub?: Subscription;
+
   constructor(
     private router: Router,
     private dashboardService: DashboardService,
-    private activeService: ActiveDatasetService
+    private activeService: ActiveDatasetService,
+    private themeService: ThemeService
   ) {}
 
   ngOnInit(): void {
+    this.themeSub = this.themeService.theme$.subscribe(() => {
+      if (this.dashLoaded) {
+        this.renderChart();
+      }
+    });
+
     this.activeService.ensureLoaded().then(() => {
       this.activeService.families$.subscribe(families => {
         this.availableFamilies = families.map(f => ({ key: f.key, label: f.label }));
@@ -281,6 +293,9 @@ export class HomeComponent implements OnInit, AfterViewInit, OnDestroy {
   }
   
   ngOnDestroy(): void {
+    if (this.themeSub) {
+      this.themeSub.unsubscribe();
+    }
     if (this.chartInstance) {
       this.chartInstance.destroy();
     }

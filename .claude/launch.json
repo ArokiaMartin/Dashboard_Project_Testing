@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "C:\\Users\\amartinn\\AppData\\Local\\Temp\\claude\\C--Users-amartinn-Downloads-Dashboard-Project-Testing-demo-20072026-Dashboard-Project-Testing-demo-20072026\\1cffa5f1-7179-4f80-b353-e19beae780b9\\scratchpad\\start-frontend.cmd",
+      "runtimeArgs": [],
+      "port": 4200,
+      "autoPort": false
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "C:\\Users\\amartinn\\AppData\\Local\\Temp\\claude\\C--Users-amartinn-Downloads-Dashboard-Project-Testing-demo-20072026-Dashboard-Project-Testing-demo-20072026\\1cffa5f1-7179-4f80-b353-e19beae780b9\\scratchpad\\start-backend.cmd",
+      "runtimeArgs": [],
+      "port": 8081,
+      "autoPort": false
+    }
+  ]
+}

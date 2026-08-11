@@ -63,8 +63,8 @@ import { LayoutService } from '@core/services/layout.service';
   styles: [`
     .sidebar {
       width: 210px;
-      background: white;
-      border-right: 1px solid #e8ebf2;
+      background: var(--bg-surface, white);
+      border-right: 1px solid var(--border-color, #e8ebf2);
       padding: 22px 0;
       display: flex;
       flex-direction: column;
@@ -84,7 +84,7 @@ import { LayoutService } from '@core/services/layout.service';
       transition: background 0.2s;
     }
     .logo-section:focus-visible {
-      outline: 2px solid #2563eb;
+      outline: 2px solid var(--accent-primary, #2563eb);
       outline-offset: 2px;
     }
     .brand-logo { width: 140px; max-width: 100%; height: auto; display: block; margin-right: auto; border-radius: 6px; }
@@ -95,28 +95,28 @@ import { LayoutService } from '@core/services/layout.service';
 
     .subtitle {
       margin: 0 0 14px; padding: 0 20px 16px;
-      font-size: 12px; color: #94a3b8; font-weight: 500;
-      border-bottom: 1px solid #eef1f6;
+      font-size: 12px; color: var(--text-muted, #94a3b8); font-weight: 500;
+      border-bottom: 1px solid var(--border-color, #eef1f6);
     }
-    .sidebar.collapsed .logo-section { border-bottom: 1px solid #eef1f6; padding-bottom: 16px; margin-bottom: 8px; }
+    .sidebar.collapsed .logo-section { border-bottom: 1px solid var(--border-color, #eef1f6); padding-bottom: 16px; margin-bottom: 8px; }
 
     .menu { flex: 1; padding: 6px 12px; display: flex; flex-direction: column; gap: 2px; }
 
     .menu-item {
       display: flex; align-items: center; gap: 12px;
-      padding: 11px 14px; color: #64748b; text-decoration: none;
+      padding: 11px 14px; color: var(--text-secondary, #64748b); text-decoration: none;
       font-size: 14px; font-weight: 600; border-radius: 10px;
       transition: background 0.16s ease, color 0.16s ease; cursor: pointer;
       white-space: nowrap;
     }
     .menu-item svg { flex-shrink: 0; }
     .menu-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .menu-item:hover { background: #f4f6fb; color: #2563eb; }
-    .menu-item.active { background: #eff6ff; color: #2563eb; }
+    .menu-item:hover { background: var(--bg-hover, #f4f6fb); color: var(--accent-primary, #2563eb); }
+    .menu-item.active { background: var(--accent-subtle, #eff6ff); color: var(--accent-primary, #2563eb); }
     .sidebar.collapsed .menu-item { justify-content: center; padding: 11px 0; }
 
     .settings-section {
-      border-top: 1px solid #eef1f6; padding: 12px;
+      border-top: 1px solid var(--border-color, #eef1f6); padding: 12px;
       display: flex; align-items: center; gap: 8px;
     }
     .settings-section .menu-item { flex: 1; }
@@ -125,12 +125,12 @@ import { LayoutService } from '@core/services/layout.service';
 
     .collapse-btn {
       width: 34px; height: 34px; flex-shrink: 0;
-      border: 1px solid #e8ebf2; background: white; border-radius: 9px;
-      color: #64748b; cursor: pointer;
+      border: 1px solid var(--border-color, #e8ebf2); background: var(--bg-surface, white); border-radius: 99px;
+      color: var(--text-secondary, #64748b); cursor: pointer;
       display: flex; align-items: center; justify-content: center;
       transition: all 0.15s ease;
     }
-    .collapse-btn:hover { border-color: #bfdbfe; color: #2563eb; background: #eff6ff; }
+    .collapse-btn:hover { border-color: var(--accent-primary, #bfdbfe); color: var(--accent-primary, #2563eb); background: var(--accent-subtle, #eff6ff); }
     .settings-section.collapsed .collapse-btn { width: 40px; }
   `]
 })

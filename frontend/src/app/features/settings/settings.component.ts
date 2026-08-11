@@ -1,5 +1,6 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { ThemeService } from '@core/services/theme.service';
 
 @Component({
   selector: 'app-settings',
@@ -32,7 +33,7 @@ import { CommonModule } from '@angular/common';
         <h2>Preferences</h2>
         <div class="toggle-row" *ngFor="let t of toggles">
           <div class="label"><span>{{ t.name }}</span><small>{{ t.desc }}</small></div>
-          <button class="switch" [class.on]="t.on" (click)="t.on = !t.on"><span class="knob"></span></button>
+          <button class="switch" [class.on]="getToggleState(t)" (click)="toggleSetting(t)"><span class="knob"></span></button>
         </div>
       </div>
 
@@ -88,9 +89,27 @@ import { CommonModule } from '@angular/common';
 })
 export class SettingsComponent {
   toggles = [
-    { name: 'Auto-refresh dashboards', desc: 'Refresh live data every 5 minutes', on: true },
-    { name: 'Show grid lines', desc: 'Display alignment grid in the builder', on: true },
-    { name: 'Email alerts', desc: 'Notify me when data processing completes', on: true },
-    { name: 'Dark mode', desc: 'Use a dark theme across the app', on: false }
+    { key: 'auto-refresh', name: 'Auto-refresh dashboards', desc: 'Refresh live data every 5 minutes', on: true },
+    { key: 'grid-lines', name: 'Show grid lines', desc: 'Display alignment grid in the builder', on: true },
+    { key: 'alerts', name: 'Email alerts', desc: 'Notify me when data processing completes', on: true },
+    { key: 'dark-mode', name: 'Dark mode', desc: 'Use a dark theme across the app', on: false }
   ];
+
+  constructor(public themeService: ThemeService) {}
+
+  getToggleState(t: any): boolean {
+    if (t.key === 'dark-mode') {
+      return this.themeService.isDarkMode();
+    }
+    return t.on;
+  }
+
+  toggleSetting(t: any): void {
+    if (t.key === 'dark-mode') {
+      this.themeService.toggleTheme();
+    } else {
+      t.on = !t.on;
+    }
+  }
 }
+

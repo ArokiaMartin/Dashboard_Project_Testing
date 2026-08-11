@@ -74,42 +74,42 @@ import { DashItem } from './dashboards-state.service';
   `,
   styles: [`
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 22px; }
-    .dash { position: relative; background: white; border: 1px solid #e8ebf2; border-radius: 16px; overflow: hidden; cursor: pointer; transition: all 0.2s ease; }
-    .dash:hover { box-shadow: 0 12px 30px rgba(15,23,42,0.1); transform: translateY(-3px); border-color: #dbe4f0; }
+    .dash { position: relative; background: var(--bg-surface, white); border: 1px solid var(--border-color, #e8ebf2); border-radius: 16px; overflow: hidden; cursor: pointer; transition: all 0.2s ease; box-shadow: var(--card-shadow); }
+    .dash:hover { box-shadow: var(--card-shadow); transform: translateY(-3px); border-color: var(--accent-primary, #dbe4f0); }
     .card-menu { position: absolute; top: 10px; right: 10px; z-index: 5; display: flex; gap: 6px; }
-    .card-fav { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; border: none; background: rgba(255,255,255,0.85); color: #64748b; cursor: pointer; backdrop-filter: blur(2px); box-shadow: 0 2px 6px rgba(15,23,42,0.12); transition: all 0.15s; }
-    .card-fav:hover { background: white; color: #f59e0b; }
-    .card-fav.active { color: #f59e0b; background: white; }
+    .card-fav { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; border: none; background: var(--bg-surface, rgba(255,255,255,0.85)); color: var(--text-secondary, #64748b); cursor: pointer; backdrop-filter: blur(2px); box-shadow: 0 2px 6px rgba(15,23,42,0.12); transition: all 0.15s; }
+    .card-fav:hover { background: var(--bg-hover, white); color: #f59e0b; }
+    .card-fav.active { color: #f59e0b; background: var(--bg-surface, white); }
     .card-fav.active svg { fill: #f59e0b; }
-    .card-dots { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; border: none; background: rgba(255,255,255,0.85); color: #475569; cursor: pointer; backdrop-filter: blur(2px); box-shadow: 0 2px 6px rgba(15,23,42,0.12); }
-    .card-dots:hover { background: white; color: #2563eb; }
-    .card-dropdown { position: absolute; top: 36px; right: 0; min-width: 150px; background: white; border: 1px solid #e8ebf2; border-radius: 10px; box-shadow: 0 12px 30px rgba(15,23,42,0.16); padding: 6px; display: flex; flex-direction: column; }
-    .card-dropdown button { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border: none; background: none; border-radius: 7px; font-size: 13px; font-weight: 600; color: #334155; cursor: pointer; text-align: left; }
-    .card-dropdown button:hover { background: #f1f5f9; }
+    .card-dots { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; border: none; background: var(--bg-surface, rgba(255,255,255,0.85)); color: var(--text-secondary, #475569); cursor: pointer; backdrop-filter: blur(2px); box-shadow: 0 2px 6px rgba(15,23,42,0.12); }
+    .card-dots:hover { background: var(--bg-hover, white); color: var(--accent-primary, #2563eb); }
+    .card-dropdown { position: absolute; top: 36px; right: 0; min-width: 150px; background: var(--bg-surface, white); border: 1px solid var(--border-color, #e8ebf2); border-radius: 10px; box-shadow: var(--card-shadow); padding: 6px; display: flex; flex-direction: column; }
+    .card-dropdown button { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border: none; background: none; border-radius: 7px; font-size: 13px; font-weight: 600; color: var(--text-secondary, #334155); cursor: pointer; text-align: left; }
+    .card-dropdown button:hover { background: var(--bg-hover, #f1f5f9); color: var(--accent-primary); }
     .card-dropdown button.danger { color: #dc2626; }
-    .card-dropdown button.danger:hover { background: #fef2f2; }
-    .rename-input { width: 100%; box-sizing: border-box; padding: 6px 9px; margin: 0 0 5px; border: 1.5px solid #2563eb; border-radius: 8px; font-size: 15px; font-weight: 700; color: #0f172a; outline: none; }
+    .card-dropdown button.danger:hover { background: rgba(239, 68, 68, 0.15); }
+    .rename-input { width: 100%; box-sizing: border-box; padding: 6px 9px; margin: 0 0 5px; border: 1.5px solid var(--accent-primary, #2563eb); border-radius: 8px; font-size: 15px; font-weight: 700; color: var(--text-primary, #0f172a); background: var(--bg-subtle); outline: none; }
     .thumb { height: 120px; display: flex; align-items: flex-end; }
     .thumb-svg { width: 100%; height: 96px; }
     .dash-body { padding: 18px 18px 12px; }
     .dash-body h3 { margin: 0; }
-    .dash-body p { margin: 0 0 14px; font-size: 13px; color: #94a3b8; line-height: 1.5; }
-    .meta { display: flex; justify-content: space-between; font-size: 12px; color: #94a3b8; padding-top: 12px; border-top: 1px solid #f1f5f9; }
+    .dash-body p { margin: 0 0 14px; font-size: 13px; color: var(--text-muted, #94a3b8); line-height: 1.5; }
+    .meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted, #94a3b8); padding-top: 12px; border-top: 1px solid var(--border-color, #f1f5f9); }
     .views { font-weight: 600; }
     .actions { display: flex; gap: 6px; padding: 0 18px 18px; }
-    .a { flex: 1; padding: 9px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid #2563eb; background: #2563eb; color: white; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .a:hover { background: #1d4ed8; }
-    .a.ghost { background: white; color: #475569; border-color: #e2e8f0; }
-    .a.ghost:hover { border-color: #cbd5e1; color: #2563eb; }
+    .a { flex: 1; padding: 9px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid var(--accent-primary, #2563eb); background: var(--accent-primary, #2563eb); color: white; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .a:hover { background: var(--accent-hover, #1d4ed8); }
+    .a.ghost { background: var(--bg-surface, white); color: var(--text-secondary, #475569); border-color: var(--border-color, #e2e8f0); }
+    .a.ghost:hover { border-color: var(--accent-primary, #cbd5e1); color: var(--accent-primary, #2563eb); background: var(--bg-hover); }
     .a.icon { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; padding: 9px 11px; }
-    .a.danger { background: white; color: #64748b; border-color: #e2e8f0; }
-    .a.danger:hover { background: #fef2f2; border-color: #fecaca; color: #dc2626; }
+    .a.danger { background: var(--bg-surface, white); color: var(--text-secondary, #64748b); border-color: var(--border-color, #e2e8f0); }
+    .a.danger:hover { background: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.3); color: #dc2626; }
     .a:disabled { opacity: 0.5; cursor: default; }
 
     .dash-title-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; justify-content: space-between; }
-    .dash-title-row h3 { margin: 0; font-size: 15px; font-weight: 700; color: #0f172a; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: uppercase; }
-    .dash-body .edit-btn { background: none; border: none; padding: 2px; color: #94a3b8; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; transition: all 0.15s; flex-shrink: 0; }
-    .dash-body .edit-btn:hover { color: #2563eb; background: #eff6ff; }
+    .dash-title-row h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--text-primary, #0f172a); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: uppercase; }
+    .dash-body .edit-btn { background: none; border: none; padding: 2px; color: var(--text-muted, #94a3b8); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; transition: all 0.15s; flex-shrink: 0; }
+    .dash-body .edit-btn:hover { color: var(--accent-primary, #2563eb); background: var(--bg-hover, #eff6ff); }
   `]
 })
 export class DashboardGridComponent {

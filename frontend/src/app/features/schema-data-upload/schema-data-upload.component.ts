@@ -249,7 +249,7 @@ interface UploadStage {
       align-items: center;
       justify-content: center;
       position: relative;
-      color: #9ca3af;
+      color: var(--text-muted, #9ca3af);
       font-size: 0.8rem;
       font-weight: 500;
     }
@@ -261,13 +261,15 @@ interface UploadStage {
       bottom: 10%;
       left: 50%;
       width: 1px;
-      background: #e5e7eb;
+      background: var(--border-color, #e5e7eb);
     }
 
     .schemaless-divider-vert span {
       position: relative;
-      background: #f4f6fb;
-      padding: 0.75rem 0;
+      background: var(--bg-app, #f4f6fb);
+      color: var(--text-secondary, #6b7280);
+      padding: 0.75rem 0.5rem;
+      border-radius: 4px;
     }
 
     @media (max-width: 768px) {
@@ -319,53 +321,55 @@ interface UploadStage {
     }
 
     .progress-step.active {
-      background: #2563eb;
+      background: var(--accent-primary, #2563eb);
       color: white;
     }
 
     .progress-line {
       flex: 1;
       height: 2px;
-      background: #e5e7eb;
+      background: var(--border-color, #e5e7eb);
     }
 
     .upload-header h2 {
       margin: 0 0 0.35rem 0;
       font-size: 1.35rem;
-      color: #1f2937;
+      color: var(--text-primary, #1f2937);
+      font-weight: 800;
     }
 
     .upload-header p {
       margin: 0 0 0.75rem 0;
-      color: #6b7280;
+      color: var(--text-secondary, #6b7280);
       font-size: 0.9rem;
     }
 
     .schema-info {
       padding: 0.5rem 0.75rem;
-      background: #f0f9ff;
-      border-left: 3px solid #2563eb;
+      background: var(--accent-subtle, #f0f9ff);
+      border-left: 3px solid var(--accent-primary, #2563eb);
       border-radius: 4px;
       font-size: 0.85rem;
-      color: #1e40af;
+      color: var(--accent-primary, #1e40af);
     }
 
     .upload-card {
-      background: white;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
+      background: var(--bg-surface, white);
+      border: 1px solid var(--border-color, #e5e7eb);
+      border-radius: 12px;
       padding: 1.25rem;
       margin-bottom: 1rem;
+      box-shadow: var(--card-shadow, none);
     }
 
     .drop {
-      border: 2px dashed #d1d5db;
+      border: 2px dashed var(--border-color, #d1d5db);
       border-radius: 8px;
       padding: 2.25rem 1.5rem;
       text-align: center;
       cursor: pointer;
       transition: all 0.3s;
-      background: #f9fafb;
+      background: var(--bg-subtle, #f9fafb);
       min-height: 180px;
       display: flex;
       flex-direction: column;
@@ -374,8 +378,8 @@ interface UploadStage {
     }
 
     .drop.over {
-      border-color: #2563eb;
-      background: #eff6ff;
+      border-color: var(--accent-primary, #2563eb);
+      background: var(--accent-subtle, #eff6ff);
     }
 
     .drop.busy {
@@ -394,19 +398,19 @@ interface UploadStage {
       margin: 0.75rem 0 0.25rem 0;
       font-size: 0.95rem;
       font-weight: 600;
-      color: #1f2937;
+      color: var(--text-primary, #1f2937);
     }
 
     .drop-sub {
       margin: 0 0 1rem 0;
       font-size: 0.8rem;
-      color: #6b7280;
+      color: var(--text-secondary, #6b7280);
     }
 
     .file-preview {
       margin-top: 1rem;
       padding-top: 1rem;
-      border-top: 1px solid #e5e7eb;
+      border-top: 1px solid var(--border-color, #e5e7eb);
     }
 
     .preview-item {
@@ -414,7 +418,8 @@ interface UploadStage {
       align-items: center;
       gap: 0.75rem;
       padding: 0.5rem 0.75rem;
-      background: #f0fdf4;
+      background: var(--accent-subtle, #f0fdf4);
+      color: var(--text-primary, #1f2937);
       border-radius: 6px;
       margin-bottom: 0.75rem;
       font-size: 0.85rem;
@@ -426,7 +431,7 @@ interface UploadStage {
 
     .file-size {
       margin-left: auto;
-      color: #6b7280;
+      color: var(--text-muted, #6b7280);
       font-size: 0.8rem;
     }
 
@@ -435,10 +440,10 @@ interface UploadStage {
       align-items: center;
       gap: 0.75rem;
       padding: 0.75rem;
-      background: #fef2f2;
+      background: rgba(239, 68, 68, 0.15);
       border-left: 3px solid #dc2626;
       border-radius: 4px;
-      color: #7f1d1d;
+      color: var(--text-primary, #7f1d1d);
       font-size: 0.85rem;
       margin-top: 0.75rem;
     }
@@ -457,13 +462,13 @@ interface UploadStage {
     }
 
     .btn-primary {
-      background: #2563eb;
+      background: var(--accent-primary, #2563eb);
       color: white;
       margin-top: 0.75rem;
     }
 
     .btn-primary:hover:not(:disabled) {
-      background: #1d4ed8;
+      background: var(--accent-hover, #1d4ed8);
     }
 
     .btn-primary:disabled {
@@ -472,53 +477,54 @@ interface UploadStage {
     }
 
     .btn-secondary {
-      background: #f3f4f6;
-      color: #374151;
+      background: var(--bg-subtle, #f3f4f6);
+      color: var(--text-primary, #374151);
+      border: 1px solid var(--border-color, #e5e7eb);
       margin-bottom: 0.4rem;
     }
 
     .btn-secondary:hover {
-      background: #e5e7eb;
+      background: var(--bg-hover, #e5e7eb);
     }
 
     .btn-ghost {
       background: none;
-      color: #2563eb;
+      color: var(--accent-primary, #2563eb);
       margin-top: 1rem;
     }
 
     .btn-ghost:hover {
-      color: #1d4ed8;
+      color: var(--accent-hover, #1d4ed8);
     }
 
     .btn-outline {
       padding: 0.5rem 1.25rem;
-      border: 1px solid #2563eb;
+      border: 1.5px solid var(--accent-primary, #2563eb);
       border-radius: 6px;
-      background: white;
-      color: #2563eb;
+      background: var(--bg-surface, white);
+      color: var(--accent-primary, #2563eb);
       font-size: 0.85rem;
-      font-weight: 500;
+      font-weight: 600;
       cursor: pointer;
       transition: all 0.2s;
       width: 100%;
     }
 
     .btn-outline:hover {
-      background: #eff6ff;
+      background: var(--accent-subtle, #eff6ff);
     }
 
     .schemaless-hint {
       margin: 0.5rem 0 0;
       font-size: 0.75rem;
-      color: #6b7280;
+      color: var(--text-secondary, #6b7280);
     }
 
     .success-box {
       text-align: center;
       padding: 2rem 1.5rem;
-      background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
-      border: 1px solid #86efac;
+      background: var(--bg-surface, #f0fdf4);
+      border: 1px solid var(--border-color, #86efac);
       border-radius: 12px;
     }
 
@@ -539,11 +545,11 @@ interface UploadStage {
     .success-box h2 {
       margin: 0 0 0.5rem 0;
       font-size: 1.35rem;
-      color: #065f46;
+      color: var(--text-primary, #065f46);
     }
 
     .success-message {
-      color: #047857;
+      color: var(--text-secondary, #047857);
       margin-bottom: 1.25rem;
       font-size: 0.9rem;
     }
@@ -556,22 +562,22 @@ interface UploadStage {
     }
 
     .stat {
-      background: white;
+      background: var(--bg-subtle, white);
       padding: 0.75rem;
       border-radius: 8px;
-      border: 1px solid #d1fae5;
+      border: 1px solid var(--border-color, #d1fae5);
     }
 
     .stat-label {
       font-size: 0.8rem;
-      color: #6b7280;
+      color: var(--text-secondary, #6b7280);
       margin-bottom: 0.35rem;
     }
 
     .stat-value {
       font-size: 1rem;
       font-weight: 600;
-      color: #065f46;
+      color: var(--text-primary, #065f46);
       word-break: break-all;
     }
 
