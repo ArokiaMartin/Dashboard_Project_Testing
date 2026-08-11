@@ -156,49 +156,49 @@ const PALETTE = ['#2563eb', '#60a5fa', '#93c5fd', '#1e40af', '#64748b', '#cbd5e1
   `,
   styles: [`
     :host { display: block; height: 100%; }
-    .tile { background: white; border: 1px solid #e8ebf2; border-radius: 12px; padding: 16px; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; transition: box-shadow 0.15s, border-color 0.15s; }
-    .tile.editing { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.15); }
+    .tile { background: var(--bg-surface, white); border: 1px solid var(--border-color, #e8ebf2); border-radius: 12px; padding: 16px; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; transition: box-shadow 0.15s, border-color 0.15s; box-shadow: var(--card-shadow); }
+    .tile.editing { border-color: var(--accent-primary, #2563eb); box-shadow: 0 0 0 3px rgba(37,99,235,0.15); }
     .tile-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-    .tile-title { font-size: 13px; font-weight: 700; color: #0f172a; }
+    .tile-title { font-size: 13px; font-weight: 700; color: var(--text-primary, #0f172a); }
     .tile-actions { display: flex; align-items: center; gap: 2px; }
-    .tile-edit, .tile-remove { width: 26px; height: 26px; border: none; background: none; color: #cbd5e1; border-radius: 7px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-    .tile-edit:hover { background: #eff6ff; color: #2563eb; }
-    .tile-remove:hover { background: #fef2f2; color: #ef4444; }
-    .tile-title-input { flex: 1; min-width: 0; font-size: 13px; font-weight: 700; color: #0f172a; border: 1.5px solid #2563eb; border-radius: 6px; padding: 3px 7px; outline: none; margin-right: 8px; }
+    .tile-edit, .tile-remove { width: 26px; height: 26px; border: none; background: none; color: var(--text-muted, #cbd5e1); border-radius: 7px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .tile-edit:hover { background: var(--accent-subtle, #eff6ff); color: var(--accent-primary, #2563eb); }
+    .tile-remove:hover { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+    .tile-title-input { flex: 1; min-width: 0; font-size: 13px; font-weight: 700; color: var(--text-primary, #0f172a); background: var(--bg-subtle); border: 1.5px solid var(--accent-primary, #2563eb); border-radius: 6px; padding: 3px 7px; outline: none; margin-right: 8px; }
     .tile-menu { position: relative; }
-    .tile-dots { width: 26px; height: 26px; border: none; background: none; color: #94a3b8; border-radius: 7px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-    .tile-dots:hover { background: #f1f5f9; color: #475569; }
-    .tile-dropdown { position: absolute; top: 30px; right: 0; z-index: 30; background: white; border: 1px solid #e8ebf2; border-radius: 10px; box-shadow: 0 10px 30px rgba(15,23,42,0.14); padding: 5px; min-width: 148px; display: flex; flex-direction: column; }
-    .tile-dropdown button { display: flex; align-items: center; gap: 9px; width: 100%; border: none; background: none; padding: 8px 10px; font-size: 13px; font-weight: 600; color: #334155; border-radius: 7px; cursor: pointer; text-align: left; }
-    .tile-dropdown button:hover { background: #f8fafc; color: #2563eb; }
-    .tile-dropdown button.danger { color: #64748b; }
-    .tile-dropdown button.danger:hover { background: #fef2f2; color: #ef4444; }
-    .tile-drill { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: -4px 0 8px; font-size: 11px; color: #94a3b8; }
-    .drill-crumb { border: none; background: #f1f5f9; color: #2563eb; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 6px; cursor: pointer; }
-    .drill-crumb:hover:not(:disabled) { background: #e0edff; }
-    .drill-crumb:disabled { color: #64748b; cursor: default; background: #f1f5f9; }
+    .tile-dots { width: 26px; height: 26px; border: none; background: none; color: var(--text-muted, #94a3b8); border-radius: 7px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .tile-dots:hover { background: var(--bg-hover, #f1f5f9); color: var(--text-primary, #475569); }
+    .tile-dropdown { position: absolute; top: 30px; right: 0; z-index: 30; background: var(--bg-surface, white); border: 1px solid var(--border-color, #e8ebf2); border-radius: 10px; box-shadow: var(--card-shadow); padding: 5px; min-width: 148px; display: flex; flex-direction: column; }
+    .tile-dropdown button { display: flex; align-items: center; gap: 9px; width: 100%; border: none; background: none; padding: 8px 10px; font-size: 13px; font-weight: 600; color: var(--text-secondary, #334155); border-radius: 7px; cursor: pointer; text-align: left; }
+    .tile-dropdown button:hover { background: var(--bg-hover, #f8fafc); color: var(--accent-primary, #2563eb); }
+    .tile-dropdown button.danger { color: var(--text-secondary, #64748b); }
+    .tile-dropdown button.danger:hover { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+    .tile-drill { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: -4px 0 8px; font-size: 11px; color: var(--text-muted, #94a3b8); }
+    .drill-crumb { border: none; background: var(--bg-subtle, #f1f5f9); color: var(--accent-primary, #2563eb); font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 6px; cursor: pointer; }
+    .drill-crumb:hover:not(:disabled) { background: var(--accent-subtle, #e0edff); }
+    .drill-crumb:disabled { color: var(--text-secondary, #64748b); cursor: default; background: var(--bg-subtle, #f1f5f9); }
     .drill-crumb.root { font-weight: 700; }
-    .drill-sep { color: #cbd5e1; }
-    .drill-current { color: #94a3b8; }
-    .drill-current b { color: #475569; font-weight: 700; }
-    .drill-current.leaf { color: #cbd5e1; }
-    .drill-status { margin-left: auto; font-weight: 600; color: #94a3b8; }
+    .drill-sep { color: var(--text-muted, #cbd5e1); }
+    .drill-current { color: var(--text-muted, #94a3b8); }
+    .drill-current b { color: var(--text-secondary, #475569); font-weight: 700; }
+    .drill-current.leaf { color: var(--text-muted, #cbd5e1); }
+    .drill-status { margin-left: auto; font-weight: 600; color: var(--text-muted, #94a3b8); }
     .drill-status.err { color: #ef4444; }
     .tile-body { flex: 1; min-height: 0; position: relative; }
     .tile-chart { position: absolute; inset: 0; }
     .tile-kpi { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
     .tile-kpi.drillable { cursor: pointer; border-radius: 10px; transition: background 0.15s; }
-    .tile-kpi.drillable:hover { background: #f8fafc; }
-    .tk-num { font-size: 40px; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; }
-    .tk-cap { font-size: 12px; color: #94a3b8; text-transform: capitalize; margin-top: 2px; }
+    .tile-kpi.drillable:hover { background: var(--bg-hover, #f8fafc); }
+    .tk-num { font-size: 40px; font-weight: 800; color: var(--text-primary, #0f172a); letter-spacing: -0.5px; }
+    .tk-cap { font-size: 12px; color: var(--text-muted, #94a3b8); text-transform: capitalize; margin-top: 2px; }
     .tk-trend { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: #059669; margin-top: 10px; }
-    .tk-drillhint { font-size: 10px; font-weight: 600; color: #2563eb; margin-top: 8px; }
+    .tk-drillhint { font-size: 10px; font-weight: 600; color: var(--accent-primary, #2563eb); margin-top: 8px; }
     .tile-table { height: 100%; overflow: auto; }
     .tile-table table { width: 100%; border-collapse: collapse; }
-    .tile-table th { text-align: left; padding: 7px 10px; font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; border-bottom: 1px solid #eef1f6; position: sticky; top: 0; background: white; }
-    .tile-table td { padding: 7px 10px; font-size: 12px; color: #334155; border-bottom: 1px solid #f4f6fb; white-space: nowrap; }
+    .tile-table th { text-align: left; padding: 7px 10px; font-size: 10px; font-weight: 700; color: var(--text-muted, #94a3b8); text-transform: uppercase; border-bottom: 1px solid var(--border-color, #eef1f6); position: sticky; top: 0; background: var(--bg-surface, white); }
+    .tile-table td { padding: 7px 10px; font-size: 12px; color: var(--text-secondary, #334155); border-bottom: 1px solid var(--border-color, #f4f6fb); white-space: nowrap; }
     .tile-table tbody tr.drillable { cursor: pointer; }
-    .tile-table tbody tr.drillable:hover td { background: #eff6ff; color: #2563eb; }
+    .tile-table tbody tr.drillable:hover td { background: var(--accent-subtle, #eff6ff); color: var(--accent-primary, #2563eb); }
   `]
 })
 export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy {

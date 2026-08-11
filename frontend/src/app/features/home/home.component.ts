@@ -2,9 +2,9 @@ import { Component, OnInit, ViewChild, ElementRef, AfterViewInit, OnDestroy, Hos
 import { CommonModule } from '@angular/common';
 import { RouterLink, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { DashboardService, DashboardRecord } from '@core/services/dashboard.service';
-import { ActiveDatasetService } from '@core/services/active-dataset.service';
-import { ThemeService } from '@core/services/theme.service';
+import { DashboardService, DashboardRecord } from '../../core/services/dashboard.service';
+import { ActiveDatasetService } from '../../core/services/active-dataset.service';
+import { ThemeService } from '../../core/services/theme.service';
 import { Subscription } from 'rxjs';
 import { Chart, registerables } from 'chart.js';
 import Fuse from 'fuse.js';

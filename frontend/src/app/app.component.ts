@@ -1,8 +1,8 @@
 import { Component, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
-import { SidebarComponent } from '@layout/sidebar/sidebar.component';
-import { ThemeService } from '@core/services/theme.service';
+import { SidebarComponent } from './layout/sidebar/sidebar.component';
+import { ThemeService } from './core/services/theme.service';
 
 @Component({
   selector: 'app-root',
