@@ -26,73 +26,72 @@ interface DashCard {
     <div class="page">
       <!-- Animated Background Canvas -->
       <div class="home-bg-canvas" aria-hidden="true">
-        <svg width="100%" height="100%" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <!-- Flowing trend line 1 -->
-          <path d="M 0 600 Q 250 380 500 520 T 960 340 T 1440 460"
-            stroke="#93c5fd" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.55">
-            <animate attributeName="stroke-dashoffset" from="4000" to="0" dur="5s" fill="freeze" />
-            <animate attributeName="opacity" values="0;0.55;0.55" dur="5s" fill="freeze" />
-          </path>
-          <path d="M 0 600 Q 250 380 500 520 T 960 340 T 1440 460"
-            stroke="#93c5fd" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.55"
-            stroke-dasharray="4000" stroke-dashoffset="4000">
-            <animate attributeName="stroke-dashoffset" from="4000" to="0" dur="5s" fill="freeze" />
+        <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" fill="none" xmlns="http://www.w3.org/2000/svg">
+
+          <!-- Flowing trend line 1 (bottom sweep) -->
+          <path d="M 0 68 Q 18 42 35 58 T 67 38 T 100 52"
+            stroke="#93c5fd" stroke-width="0.35" stroke-linecap="round" fill="none"
+            stroke-dasharray="300" stroke-dashoffset="300">
+            <animate attributeName="stroke-dashoffset" from="300" to="0" dur="5s" fill="freeze"/>
+            <animate attributeName="opacity" values="0;0.6;0.6" dur="5s" fill="freeze"/>
           </path>
 
-          <!-- Flowing trend line 2 -->
-          <path d="M 0 220 Q 320 450 620 270 T 1100 400 T 1440 220"
-            stroke="#a5b4fc" stroke-width="1.5" stroke-linecap="round" fill="none"
-            stroke-dasharray="4500" stroke-dashoffset="4500">
-            <animate attributeName="stroke-dashoffset" from="4500" to="0" dur="6.5s" fill="freeze" />
+          <!-- Flowing trend line 2 (top sweep) -->
+          <path d="M 0 25 Q 22 50 43 30 T 76 45 T 100 25"
+            stroke="#a5b4fc" stroke-width="0.25" stroke-linecap="round" fill="none"
+            stroke-dasharray="300" stroke-dashoffset="300">
+            <animate attributeName="stroke-dashoffset" from="300" to="0" dur="6.5s" fill="freeze"/>
+            <animate attributeName="opacity" values="0;0.5;0.5" dur="6.5s" fill="freeze"/>
           </path>
 
-          <!-- LEFT side bar chart outlines -->
-          <g fill="none" stroke="#93c5fd" stroke-width="2" opacity="0.5">
-            <rect x="28" y="580" width="26" height="120" rx="4">
-              <animate attributeName="height" values="80;120;80" dur="3.5s" repeatCount="indefinite" />
-              <animate attributeName="y" values="620;580;620" dur="3.5s" repeatCount="indefinite" />
-              <animate attributeName="opacity" values="0.3;0.7;0.3" dur="3.5s" repeatCount="indefinite" />
+          <!-- LEFT bar chart outlines (% coords) -->
+          <g fill="none" stroke="#93c5fd" stroke-width="0.4">
+            <rect x="1.5" y="62" width="2" height="14" rx="0.5">
+              <animate attributeName="height" values="9;14;9" dur="3.5s" repeatCount="indefinite"/>
+              <animate attributeName="y" values="67;62;67" dur="3.5s" repeatCount="indefinite"/>
+              <animate attributeName="opacity" values="0.35;0.75;0.35" dur="3.5s" repeatCount="indefinite"/>
             </rect>
-            <rect x="64" y="540" width="26" height="160" rx="4">
-              <animate attributeName="height" values="120;160;120" dur="3s" begin="0.4s" repeatCount="indefinite" />
-              <animate attributeName="y" values="580;540;580" dur="3s" begin="0.4s" repeatCount="indefinite" />
-              <animate attributeName="opacity" values="0.3;0.7;0.3" dur="3s" begin="0.4s" repeatCount="indefinite" />
+            <rect x="4.2" y="57" width="2" height="19" rx="0.5">
+              <animate attributeName="height" values="14;19;14" dur="3s" begin="0.4s" repeatCount="indefinite"/>
+              <animate attributeName="y" values="62;57;62" dur="3s" begin="0.4s" repeatCount="indefinite"/>
+              <animate attributeName="opacity" values="0.35;0.75;0.35" dur="3s" begin="0.4s" repeatCount="indefinite"/>
             </rect>
-            <rect x="100" y="600" width="26" height="100" rx="4">
-              <animate attributeName="height" values="70;100;70" dur="4s" begin="0.8s" repeatCount="indefinite" />
-              <animate attributeName="y" values="630;600;630" dur="4s" begin="0.8s" repeatCount="indefinite" />
-              <animate attributeName="opacity" values="0.3;0.7;0.3" dur="4s" begin="0.8s" repeatCount="indefinite" />
+            <rect x="6.9" y="65" width="2" height="11" rx="0.5">
+              <animate attributeName="height" values="7;11;7" dur="4s" begin="0.8s" repeatCount="indefinite"/>
+              <animate attributeName="y" values="69;65;69" dur="4s" begin="0.8s" repeatCount="indefinite"/>
+              <animate attributeName="opacity" values="0.35;0.75;0.35" dur="4s" begin="0.8s" repeatCount="indefinite"/>
             </rect>
-            <rect x="136" y="520" width="26" height="180" rx="4">
-              <animate attributeName="height" values="140;180;140" dur="3.2s" begin="1.2s" repeatCount="indefinite" />
-              <animate attributeName="y" values="560;520;560" dur="3.2s" begin="1.2s" repeatCount="indefinite" />
-              <animate attributeName="opacity" values="0.3;0.7;0.3" dur="3.2s" begin="1.2s" repeatCount="indefinite" />
+            <rect x="9.6" y="53" width="2" height="23" rx="0.5">
+              <animate attributeName="height" values="17;23;17" dur="3.2s" begin="1.2s" repeatCount="indefinite"/>
+              <animate attributeName="y" values="59;53;59" dur="3.2s" begin="1.2s" repeatCount="indefinite"/>
+              <animate attributeName="opacity" values="0.35;0.75;0.35" dur="3.2s" begin="1.2s" repeatCount="indefinite"/>
             </rect>
           </g>
 
-          <!-- RIGHT side bar chart outlines -->
-          <g fill="none" stroke="#818cf8" stroke-width="2" opacity="0.45">
-            <rect x="1256" y="60" width="26" height="120" rx="4">
-              <animate attributeName="height" values="90;130;90" dur="3.8s" repeatCount="indefinite" />
-              <animate attributeName="y" values="90;60;90" dur="3.8s" repeatCount="indefinite" />
-              <animate attributeName="opacity" values="0.25;0.65;0.25" dur="3.8s" repeatCount="indefinite" />
+          <!-- RIGHT bar chart outlines (% coords) -->
+          <g fill="none" stroke="#818cf8" stroke-width="0.4">
+            <rect x="87.5" y="6" width="2" height="14" rx="0.5">
+              <animate attributeName="height" values="10;15;10" dur="3.8s" repeatCount="indefinite"/>
+              <animate attributeName="y" values="10;6;10" dur="3.8s" repeatCount="indefinite"/>
+              <animate attributeName="opacity" values="0.3;0.7;0.3" dur="3.8s" repeatCount="indefinite"/>
             </rect>
-            <rect x="1292" y="30" width="26" height="160" rx="4">
-              <animate attributeName="height" values="130;165;130" dur="3s" begin="0.5s" repeatCount="indefinite" />
-              <animate attributeName="y" values="55;30;55" dur="3s" begin="0.5s" repeatCount="indefinite" />
-              <animate attributeName="opacity" values="0.25;0.65;0.25" dur="3s" begin="0.5s" repeatCount="indefinite" />
+            <rect x="90.2" y="3" width="2" height="18" rx="0.5">
+              <animate attributeName="height" values="14;19;14" dur="3s" begin="0.5s" repeatCount="indefinite"/>
+              <animate attributeName="y" values="7;3;7" dur="3s" begin="0.5s" repeatCount="indefinite"/>
+              <animate attributeName="opacity" values="0.3;0.7;0.3" dur="3s" begin="0.5s" repeatCount="indefinite"/>
             </rect>
-            <rect x="1328" y="70" width="26" height="100" rx="4">
-              <animate attributeName="height" values="75;110;75" dur="4.2s" begin="1s" repeatCount="indefinite" />
-              <animate attributeName="y" values="100;70;100" dur="4.2s" begin="1s" repeatCount="indefinite" />
-              <animate attributeName="opacity" values="0.25;0.65;0.25" dur="4.2s" begin="1s" repeatCount="indefinite" />
+            <rect x="92.9" y="7" width="2" height="11" rx="0.5">
+              <animate attributeName="height" values="8;12;8" dur="4.2s" begin="1s" repeatCount="indefinite"/>
+              <animate attributeName="y" values="10;7;10" dur="4.2s" begin="1s" repeatCount="indefinite"/>
+              <animate attributeName="opacity" values="0.3;0.7;0.3" dur="4.2s" begin="1s" repeatCount="indefinite"/>
             </rect>
-            <rect x="1364" y="45" width="26" height="145" rx="4">
-              <animate attributeName="height" values="110;150;110" dur="3.5s" begin="1.5s" repeatCount="indefinite" />
-              <animate attributeName="y" values="80;45;80" dur="3.5s" begin="1.5s" repeatCount="indefinite" />
-              <animate attributeName="opacity" values="0.25;0.65;0.25" dur="3.5s" begin="1.5s" repeatCount="indefinite" />
+            <rect x="95.6" y="4" width="2" height="16" rx="0.5">
+              <animate attributeName="height" values="12;17;12" dur="3.5s" begin="1.5s" repeatCount="indefinite"/>
+              <animate attributeName="y" values="8;4;8" dur="3.5s" begin="1.5s" repeatCount="indefinite"/>
+              <animate attributeName="opacity" values="0.3;0.7;0.3" dur="3.5s" begin="1.5s" repeatCount="indefinite"/>
             </rect>
           </g>
+
         </svg>
       </div>
       <!-- Welcome banner -->

@@ -26,12 +26,15 @@ public class DashboardService {
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
     private final QueryConfigNormalizer normalizer;
+    private final QueryConfigNormalizer.TrustedFromSqlProvider trustedFromSql;
 
     public DashboardService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper,
-                            QueryConfigNormalizer normalizer) {
+                            QueryConfigNormalizer normalizer,
+                            QueryConfigNormalizer.TrustedFromSqlProvider trustedFromSql) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
         this.normalizer = normalizer;
+        this.trustedFromSql = trustedFromSql;
     }
 
     @PostConstruct
@@ -393,7 +396,7 @@ public class DashboardService {
         }
 
         try {
-            JsonNode configNode = normalizer.normalize(objectMapper.valueToTree(configMap));
+            JsonNode configNode = normalizer.normalize(objectMapper.valueToTree(configMap), trustedFromSql);
             QueryController.GeneratedQuery generated = QueryController.generateSql(configNode);
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                     generated.sql(),
@@ -416,7 +419,7 @@ public class DashboardService {
         try {
             JsonNode configNode = normalizer.normalize(objectMapper.valueToTree(
                 dbConfigObj instanceof Map<?, ?> map ? map : new LinkedHashMap<>()
-            ));
+            ), trustedFromSql);
             QueryController.GeneratedQuery generated = QueryController.generateSql(configNode);
             return generated.sql();
         } catch (Exception e) {

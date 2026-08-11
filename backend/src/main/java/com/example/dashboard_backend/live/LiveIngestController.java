@@ -12,7 +12,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -47,39 +46,14 @@ public class LiveIngestController {
     private final LiveSourceRegistrar registrar;
     private final LiveEventWriter writer;
     private final JsonRecordStreamer streamer;
+    private final LiveSourceService sources;
 
     public LiveIngestController(LiveSourceRegistrar registrar, LiveEventWriter writer,
-                                JsonRecordStreamer streamer) {
+                                JsonRecordStreamer streamer, LiveSourceService sources) {
         this.registrar = registrar;
         this.writer = writer;
         this.streamer = streamer;
-    }
-
-    /**
-     * Declares a live source. The schema is DECLARED, never inferred from the first event: measures are
-     * created as NUMERIC and dimensions as TEXT, and no column can be retyped afterwards.
-     */
-    @Operation(summary = "Register a live source",
-            description = "Creates the typed live table plus the dataset/field metadata that makes it selectable in the builder.")
-    @PostMapping("/sources")
-    public ResponseEntity<Map<String, Object>> registerSource(@RequestBody Map<String, Object> body) {
-        String name = body == null ? null : asText(body.get("name"));
-        List<String> dimensions = asStringList(body == null ? null : body.get("dimensions"));
-        List<String> measures = asStringList(body == null ? null : body.get("measures"));
-        UUID userId = parseUuidOrNull(body == null ? null : asText(body.get("user_id")));
-
-        LiveSourceRegistrar.LiveSource source = registrar.register(name, dimensions, measures, userId);
-
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("source_id", source.sourceId().toString());
-        response.put("table_name", source.tableName());
-        response.put("timestamp_column", LiveSourceRegistrar.TS_COLUMN);
-        List<Map<String, String>> fields = new ArrayList<>();
-        for (LiveSourceRegistrar.LiveField field : source.fields()) {
-            fields.add(Map.of("name", field.displayName(), "column", field.columnName(), "type", field.fieldType()));
-        }
-        response.put("fields", fields);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        this.sources = sources;
     }
 
     /**
@@ -94,6 +68,18 @@ public class LiveIngestController {
         LiveSourceRegistrar.LiveSource source = registrar.resolve(sourceId);
         if (source == null) {
             return ResponseEntity.notFound().build();
+        }
+
+        // The ingest endpoint creates and writes database tables and is unauthenticated at the network
+        // level, so a per-source bearer token is the only thing gating writes. Reject before buffering.
+        String authHeader = request.getHeader("Authorization");
+        String token = authHeader != null && authHeader.startsWith("Bearer ")
+                ? authHeader.substring("Bearer ".length()).trim() : null;
+        if (!sources.verifyToken(sourceId, token)) {
+            Map<String, Object> unauthorized = new LinkedHashMap<>();
+            unauthorized.put("error", "invalid_token");
+            unauthorized.put("message", "Ingest token is invalid or has been regenerated.");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(unauthorized);
         }
 
         AtomicInteger accepted = new AtomicInteger();
@@ -185,32 +171,5 @@ public class LiveIngestController {
             }
         }
         return value.isTextual() ? value.asText() : value.toString();
-    }
-
-    private static String asText(Object value) {
-        return value == null ? null : String.valueOf(value);
-    }
-
-    private static List<String> asStringList(Object value) {
-        List<String> result = new ArrayList<>();
-        if (value instanceof List<?> list) {
-            for (Object item : list) {
-                if (item != null) {
-                    result.add(String.valueOf(item));
-                }
-            }
-        }
-        return result;
-    }
-
-    private static UUID parseUuidOrNull(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        try {
-            return UUID.fromString(value.trim());
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
     }
 }

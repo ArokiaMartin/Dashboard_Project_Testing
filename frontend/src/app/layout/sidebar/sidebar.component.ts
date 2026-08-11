@@ -32,6 +32,10 @@ import { LayoutService } from '@core/services/layout.service';
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
           <span *ngIf="!collapsed">Uploaded Data</span>
         </a>
+        <a routerLink="/live-sources" routerLinkActive="active" class="menu-item" [title]="collapsed ? 'Live Sources' : ''">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          <span *ngIf="!collapsed">Live Sources</span>
+        </a>
         <a routerLink="/builder" routerLinkActive="active" class="menu-item" [title]="collapsed ? 'Dashboard Builder' : ''">
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
           <span *ngIf="!collapsed">Dashboard Builder</span>

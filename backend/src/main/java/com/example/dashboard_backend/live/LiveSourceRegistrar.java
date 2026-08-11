@@ -9,13 +9,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Creates and catalogs a <em>live</em> source: a purpose-built, hand-written table that a high-frequency
@@ -61,8 +62,20 @@ public class LiveSourceRegistrar {
     private final JdbcTemplate jdbcTemplate;
     private final IngestionMetadataRepository metadataRepository;
 
-    /** upload_id -> live source (empty when the upload is NOT a live source). Kind never changes. */
-    private final Map<UUID, Optional<LiveSource>> cache = new ConcurrentHashMap<>();
+    /** Upper bound on cached lookups. resolve() is consulted on every /execute-query, so a normal
+     * (non-live) upload produces an {@code Optional.empty()} entry; without a bound those negatives
+     * would grow without limit. LRU eviction keeps the hot set cached and drops cold entries. */
+    private static final int MAX_CACHE_ENTRIES = 1000;
+
+    /** upload_id -> live source (empty when the upload is NOT a live source). Kind never changes, so a
+     * cached value stays valid until the upload is deleted (which calls {@link #invalidate}). Bounded LRU. */
+    private final Map<UUID, Optional<LiveSource>> cache = Collections.synchronizedMap(
+            new LinkedHashMap<>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<UUID, Optional<LiveSource>> eldest) {
+                    return size() > MAX_CACHE_ENTRIES;
+                }
+            });
 
     public LiveSourceRegistrar(JdbcTemplate jdbcTemplate, IngestionMetadataRepository metadataRepository) {
         this.jdbcTemplate = jdbcTemplate;

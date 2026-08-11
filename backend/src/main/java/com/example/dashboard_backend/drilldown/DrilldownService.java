@@ -40,13 +40,17 @@ public class DrilldownService {
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
     private final QueryConfigNormalizer normalizer;
+    private final QueryConfigNormalizer.TrustedFromSqlProvider trustedFromSql;
     private final DrilldownCandidateSelector candidateSelector;
 
     public DrilldownService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper,
-                            QueryConfigNormalizer normalizer, DrilldownCandidateSelector candidateSelector) {
+                            QueryConfigNormalizer normalizer,
+                            QueryConfigNormalizer.TrustedFromSqlProvider trustedFromSql,
+                            DrilldownCandidateSelector candidateSelector) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
         this.normalizer = normalizer;
+        this.trustedFromSql = trustedFromSql;
         this.candidateSelector = candidateSelector;
     }
 
@@ -173,7 +177,9 @@ public class DrilldownService {
 
         config.put("pagination", Map.of("top", topN, "offset", 0));
 
-        JsonNode normalized = normalizer.normalize(objectMapper.valueToTree(config));
+        // Route through the trusted live provider so a drill into a live source reads its bucketed,
+        // windowed derived table (same as /execute-query) instead of raw per-event rows over all history.
+        JsonNode normalized = normalizer.normalize(objectMapper.valueToTree(config), trustedFromSql);
         return QueryController.generateSql(normalized);
     }
 

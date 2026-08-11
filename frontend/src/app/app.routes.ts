@@ -51,6 +51,20 @@ export const routes: Routes = [
     path: 'settings',
     loadComponent: () => import('./features/settings/settings.component').then(m => m.SettingsComponent),
     canActivate: [authGuard]
+  },
+  {
+    path: 'live-sources',
+    loadComponent: () => import('./features/live-sources/live-source-list.component').then(m => m.LiveSourceListComponent),
+    canActivate: [authGuard]
+  },
+  {
+    path: 'live-sources/new',
+    loadComponent: () => import('./features/live-sources/live-source-wizard.component').then(m => m.LiveSourceWizardComponent),
+    canActivate: [authGuard]
+  },
+  {
+    path: 'live-sources/:id',
+    loadComponent: () => import('./features/live-sources/live-source-detail.component').then(m => m.LiveSourceDetailComponent),
+    canActivate: [authGuard]
   }
 ];
-

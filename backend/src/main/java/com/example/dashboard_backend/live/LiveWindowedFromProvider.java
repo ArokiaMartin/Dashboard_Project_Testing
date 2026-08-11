@@ -76,7 +76,8 @@ public class LiveWindowedFromProvider implements QueryConfigNormalizer.TrustedFr
 
         JsonNode live = normalizedConfig == null ? null : normalizedConfig.get("live");
         String bucket = bucketOf(live);
-        int windowMinutes = windowMinutesOf(live);
+        Integer windowMinutes = windowMinutesOf(live);   // null => all time (no lower bound)
+        boolean excludeOpenBucket = excludeOpenBucketOf(live);
         String timeZone = timeZoneOf(live);
 
         String ts = SqlIdentifier.quote(LiveSourceRegistrar.TS_COLUMN);
@@ -89,12 +90,21 @@ public class LiveWindowedFromProvider implements QueryConfigNormalizer.TrustedFr
             selectParts.add(SqlIdentifier.quote(field.columnName()));
         }
 
+        // The window and the closed-bucket cut are per-widget, not forced on every query. A KPI or table
+        // can ask for "all time" (windowMinutes <= 0 or "all") and/or keep the still-filling bucket, so a
+        // "Total revenue" KPI is not silently "revenue in the last hour minus the current minute".
+        StringBuilder where = new StringBuilder(" WHERE upload_id = '" + dataset.uploadId() + "'::uuid");
+        if (windowMinutes != null) {
+            where.append(" AND ").append(ts).append(" >= now() - interval '").append(windowMinutes).append(" minutes'");
+        }
+        if (excludeOpenBucket) {
+            where.append(" AND ").append(ts).append(" < (date_trunc('").append(bucket)
+                    .append("', now() AT TIME ZONE ").append(tzLiteral).append(") AT TIME ZONE ").append(tzLiteral).append(")");
+        }
+
         String sql = "(SELECT " + String.join(", ", selectParts)
                 + " FROM " + SqlIdentifier.quote(source.tableName())
-                + " WHERE upload_id = '" + dataset.uploadId() + "'::uuid"
-                + " AND " + ts + " >= now() - interval '" + windowMinutes + " minutes'"
-                + " AND " + ts + " < (date_trunc('" + bucket + "', now() AT TIME ZONE " + tzLiteral
-                + ") AT TIME ZONE " + tzLiteral + ")"
+                + where
                 + ") AS " + SqlIdentifier.quote(source.tableName());
 
         return assertNoBinds(sql);
@@ -111,19 +121,34 @@ public class LiveWindowedFromProvider implements QueryConfigNormalizer.TrustedFr
         return bucket;
     }
 
-    private static int windowMinutesOf(JsonNode live) {
+    private static Integer windowMinutesOf(JsonNode live) {
         if (live == null || !live.hasNonNull("windowMinutes")) {
             return DEFAULT_WINDOW_MINUTES;
         }
         JsonNode node = live.get("windowMinutes");
+        // Explicit "all time": the string "all", or a non-positive number, means no lower time bound.
+        if (node.isTextual() && node.asText().trim().equalsIgnoreCase("all")) {
+            return null;
+        }
         if (!node.canConvertToInt()) {
             throw new IllegalArgumentException("Invalid live windowMinutes: " + node.asText());
         }
         int minutes = node.asInt();
-        if (minutes < 1 || minutes > MAX_WINDOW_MINUTES) {
+        if (minutes <= 0) {
+            return null; // all time
+        }
+        if (minutes > MAX_WINDOW_MINUTES) {
             throw new IllegalArgumentException("live windowMinutes must be between 1 and " + MAX_WINDOW_MINUTES);
         }
         return minutes;
+    }
+
+    /** The still-filling bucket is excluded by default; a widget may opt in to including it. */
+    private static boolean excludeOpenBucketOf(JsonNode live) {
+        if (live == null || !live.hasNonNull("excludeOpenBucket")) {
+            return true;
+        }
+        return live.get("excludeOpenBucket").asBoolean(true);
     }
 
     private static String timeZoneOf(JsonNode live) {
