@@ -591,7 +591,7 @@ import { AuthService } from './core/services/auth.service';
   `]
 })
 export class AppComponent {
-  title = 'Dynamic Dashboard';
+  title = 'Hyland Lumina';
   showNotifs = false;
   showHelp = false;
   showUserMenu = false;

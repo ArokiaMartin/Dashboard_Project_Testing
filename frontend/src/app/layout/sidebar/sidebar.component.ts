@@ -13,6 +13,7 @@ import { LayoutService } from '@core/services/layout.service';
         <div class="brand-block-sidebar" *ngIf="!collapsed">
           <img class="brand-logo" src="assets/hyland-logo.jpg" alt="Hyland" />
           <div class="brand-titles-sidebar">
+            <span class="brand-lumina-text">Lumina</span>
             <span class="subtitle-text">ANALYTICS SUITE</span>
           </div>
         </div>
