@@ -1,0 +1,11 @@
+[
+  {"month": "2026-01-01", "region": "North", "sales_amount": 50000, "quantity": 100, "profit_margin": 15},
+  {"month": "2026-01-01", "region": "South", "sales_amount": 45000, "quantity": 90, "profit_margin": 14},
+  {"month": "2026-01-01", "region": "East", "sales_amount": 55000, "quantity": 110, "profit_margin": 16},
+  {"month": "2026-02-01", "region": "North", "sales_amount": 52000, "quantity": 105, "profit_margin": 15.5},
+  {"month": "2026-02-01", "region": "South", "sales_amount": 48000, "quantity": 95, "profit_margin": 14.5},
+  {"month": "2026-02-01", "region": "East", "sales_amount": 58000, "quantity": 115, "profit_margin": 16.5},
+  {"month": "2026-03-01", "region": "North", "sales_amount": 55000, "quantity": 110, "profit_margin": 16},
+  {"month": "2026-03-01", "region": "South", "sales_amount": 50000, "quantity": 100, "profit_margin": 15},
+  {"month": "2026-03-01", "region": "East", "sales_amount": 60000, "quantity": 120, "profit_margin": 17}
+]

@@ -1,0 +1,16 @@
+employee_id,full_name,department,job_title,salary,years_experience,office_location,hire_date,is_remote
+EMP001,Olivia Bennett,Engineering,Software Engineer,95000,4,New York,2021-03-12,false
+EMP002,Liam Foster,Engineering,Senior Software Engineer,128000,8,San Francisco,2018-07-01,true
+EMP003,Emma Rodriguez,Marketing,Marketing Specialist,62000,3,Chicago,2022-01-18,false
+EMP004,Noah Patel,Sales,Account Executive,74000,5,Austin,2020-09-23,true
+EMP005,Ava Thompson,Human Resources,HR Manager,88000,9,New York,2017-11-05,false
+EMP006,William Nguyen,Engineering,DevOps Engineer,110000,6,San Francisco,2019-06-14,true
+EMP007,Sophia Martinez,Finance,Financial Analyst,71000,4,Chicago,2021-08-30,false
+EMP008,James Carter,Sales,Sales Director,145000,12,Austin,2014-02-17,false
+EMP009,Isabella Wright,Marketing,Content Strategist,68000,5,Remote,2020-05-11,true
+EMP010,Benjamin Scott,Finance,Finance Manager,132000,11,New York,2015-10-08,false
+EMP011,Mia Hughes,Human Resources,Recruiter,58000,2,Chicago,2023-04-19,true
+EMP012,Lucas Green,Engineering,Data Engineer,102000,5,San Francisco,2020-12-01,true
+EMP013,Charlotte Adams,Support,Support Specialist,52000,3,Austin,2022-07-25,true
+EMP014,Henry Baker,Support,Support Lead,79000,7,New York,2019-01-14,false
+EMP015,Amelia Turner,Engineering,QA Engineer,86000,4,Remote,2021-10-03,true
