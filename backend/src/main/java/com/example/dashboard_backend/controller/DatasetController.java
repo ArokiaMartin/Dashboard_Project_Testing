@@ -1,5 +1,6 @@
 package com.example.dashboard_backend.controller;
 
+import com.example.dashboard_backend.live.LiveSourceRegistrar;
 import com.example.dashboard_backend.util.SqlIdentifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,10 +18,15 @@ public class DatasetController {
     private static final Logger log = LoggerFactory.getLogger(DatasetController.class);
 
 
-    private final JdbcTemplate jdbcTemplate;
+    /** {@code data_uploads.source_kind} value marking a continuously-appended live source. */
+    private static final String LIVE_SOURCE_KIND = LiveSourceRegistrar.SOURCE_KIND_LIVE;
 
-    public DatasetController(JdbcTemplate jdbcTemplate) {
+    private final JdbcTemplate jdbcTemplate;
+    private final LiveSourceRegistrar liveSourceRegistrar;
+
+    public DatasetController(JdbcTemplate jdbcTemplate, LiveSourceRegistrar liveSourceRegistrar) {
         this.jdbcTemplate = jdbcTemplate;
+        this.liveSourceRegistrar = liveSourceRegistrar;
     }
 
     /** List all datasets uploaded by user_123. */
@@ -28,7 +34,7 @@ public class DatasetController {
     public List<Map<String, Object>> listDatasets() {
         return jdbcTemplate.queryForList(
             "SELECT id, table_name, original_filename, row_count, column_count, status, created_at, " +
-            "schema_id, version_number " +
+            "schema_id, version_number, source_kind " +
             "FROM data_uploads ORDER BY created_at DESC"
         );
     }
@@ -451,11 +457,18 @@ public class DatasetController {
         return ResponseEntity.ok(result);
     }
 
-    /** Delete a dataset: drop its data table, remove metadata and upload record. */
+    /**
+     * Delete a dataset: drop its data table, remove metadata and upload record.
+     *
+     * <p>A live (streaming) source is refused unless {@code ?force=true} is passed: this method DROPs the
+     * physical table by name, which for a live source would pull the table out from under a writer that is
+     * still appending to it. Normal file uploads are unaffected.
+     */
     @DeleteMapping("/{uploadId}")
-    public ResponseEntity<Map<String, String>> deleteDataset(@PathVariable UUID uploadId) {
+    public ResponseEntity<Map<String, String>> deleteDataset(@PathVariable UUID uploadId,
+                                                             @RequestParam(defaultValue = "false") boolean force) {
         List<Map<String, Object>> meta = jdbcTemplate.queryForList(
-            "SELECT table_name FROM data_uploads WHERE id = ?",
+            "SELECT table_name, source_kind FROM data_uploads WHERE id = ?",
             uploadId
         );
         if (meta.isEmpty()) {
@@ -463,6 +476,12 @@ public class DatasetController {
         }
 
         String tableName = (String) meta.get(0).get("table_name");
+        String sourceKind = (String) meta.get(0).get("source_kind");
+        if (LIVE_SOURCE_KIND.equals(sourceKind) && !force) {
+            return ResponseEntity.status(409).body(Map.of(
+                "message", "This is a live source that may still be receiving events. Retry with ?force=true to delete it."
+            ));
+        }
 
         // Nested-JSON datasets fan out into child tables (<root>_items, <root>_payments, ...). Discover
         // them so this upload's rows are purged from them too, and so they're dropped alongside the root
@@ -525,6 +544,9 @@ public class DatasetController {
 
         jdbcTemplate.update("DELETE FROM field_metadata WHERE upload_id = ?", uploadId);
         jdbcTemplate.update("DELETE FROM data_uploads WHERE id = ?", uploadId);
+
+        // Drop the cached live-source lookup so a force-deleted stream stops resolving.
+        liveSourceRegistrar.invalidate(uploadId);
 
         return ResponseEntity.ok(Map.of("message", "Dataset deleted"));
     }

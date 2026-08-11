@@ -255,8 +255,15 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    // Set FIRST: work already in flight (a live tick mid-hydration, a chained refreshPreview) checks this
+    // after each await, so nothing commits widgets or calls syncDraft() against a destroyed component.
+    this.destroyed = true;
     this.schemaSub?.unsubscribe();
     if (this.filterRefreshTimeout) clearTimeout(this.filterRefreshTimeout);
+    this.stopLiveRefresh();
+    // The preview Chart owns a ResizeObserver and a requestAnimationFrame loop; without this it (and the
+    // detached canvas plus the whole spec graph) survives every navigation away from the builder.
+    this.destroyChart();
   }
 
   /** Loads the list of datasets stored in the database for the picker. */
@@ -1102,15 +1109,145 @@ export class DashboardBuilderComponent implements OnInit, OnDestroy {
       console.log('[QUEUE] Refresh already in progress, queueing new refresh');
     }
 
-    this.refreshPromise = (this.refreshPromise ?? Promise.resolve()).then(
+    // Null the field only when this link is still the tail of the chain: a queued refresh (or a live tick
+    // chained behind it) must not be mistaken for an idle chain, or it would run in parallel.
+    const chained: Promise<void> = (this.refreshPromise ?? Promise.resolve()).then(
       async () => {
         await this._doRefreshPreview();
-        this.refreshPromise = null;
+        if (this.refreshPromise === chained) this.refreshPromise = null;
       },
       () => {
-        this.refreshPromise = null;
+        if (this.refreshPromise === chained) this.refreshPromise = null;
       }
     );
+    this.refreshPromise = chained;
+  }
+
+  // ---- live refresh (opt-in; off unless setLiveRefresh() is called) ------------------------------
+
+  /** Interval between automatic re-queries of the canvas widgets, in ms. null = off, the default. */
+  liveRefreshMs: number | null = null;
+  /** True once ngOnDestroy has run. Checked after every await that would touch component state. */
+  private destroyed = false;
+  private liveTimer?: any;
+  /** True while a tick is still hydrating, so the next interval fire is SKIPPED rather than queued. */
+  private liveTickBusy = false;
+  private liveVisibilityListener?: () => void;
+
+  /**
+   * Opt-in entry point: refresh every canvas widget every `ms` milliseconds (0 / null stops it). One timer
+   * for the whole dashboard — not one per widget — so a tick is a single serialized hydration pass.
+   */
+  setLiveRefresh(ms: number | null): void {
+    this.stopLiveRefresh();
+    this.liveRefreshMs = ms && ms > 0 ? ms : null;
+    if (!this.liveRefreshMs) return;
+
+    // A hidden tab is skipped entirely (see runLiveTick) rather than accumulating ticks; catch up with one
+    // full refresh the moment it becomes visible again.
+    this.liveVisibilityListener = () => { if (!document.hidden) this.runLiveTick(); };
+    document.addEventListener('visibilitychange', this.liveVisibilityListener);
+
+    // The timer lives OUTSIDE Angular's zone for the same reason renderChart() creates its Chart there: a
+    // zone-patched setInterval triggers a change-detection pass on every tick, whether anything changed or
+    // not. runLiveTick() re-enters the zone once, only to commit the refreshed widgets.
+    this.zone.runOutsideAngular(() => {
+      this.liveTimer = setInterval(() => this.runLiveTick(), this.liveRefreshMs!);
+    });
+  }
+
+  /** Stops the live refresh and releases its timer + visibility listener. Safe to call when already off. */
+  stopLiveRefresh(): void {
+    // Cleared so runLiveTick()'s `!this.liveRefreshMs` guard actually stops a tick that is already queued.
+    this.liveRefreshMs = null;
+    if (this.liveTimer) {
+      clearInterval(this.liveTimer);
+      this.liveTimer = undefined;
+    }
+    if (this.liveVisibilityListener) {
+      document.removeEventListener('visibilitychange', this.liveVisibilityListener);
+      this.liveVisibilityListener = undefined;
+    }
+  }
+
+  private runLiveTick(): void {
+    if (!this.liveRefreshMs || this.liveTickBusy || document.hidden) return;
+    this.liveTickBusy = true;
+    this.zone.run(() => {
+      // Chain onto the same promise refreshPreview() uses, so a tick can never overlap a preview refresh.
+      const chained: Promise<void> = (this.refreshPromise ?? Promise.resolve()).then(
+        () => this.refreshLiveWidgets(),
+        () => this.refreshLiveWidgets()
+      ).then(
+        () => { this.liveTickBusy = false; if (this.refreshPromise === chained) this.refreshPromise = null; },
+        () => { this.liveTickBusy = false; if (this.refreshPromise === chained) this.refreshPromise = null; }
+      );
+      this.refreshPromise = chained;
+    });
+  }
+
+  /**
+   * One live pass over the canvas widgets: re-runs each widget's own saved query through the existing
+   * hydrate path and swaps in a widget object that differs ONLY in its data, which is what lets
+   * WidgetTileComponent update its Chart in place instead of rebuilding it. Labels and series are
+   * REPLACED, never appended — every response is a full GROUP BY snapshot, so appending would duplicate
+   * every bucket. Widgets are hydrated one at a time to keep the request rate at one query per widget
+   * per tick, and a widget that fails keeps the data already on screen.
+   */
+  private async refreshLiveWidgets(): Promise<void> {
+    if (this.destroyed) return;
+    // hydrateWidgetData applies the version-compare overlay when compareVersionId is set: that issues a
+    // SECOND executeQuery per widget and rewrites datasets to [primary, compare], which both doubles the
+    // request rate and would persist compare series into the saved widget. Same class of left-rail-state
+    // leak as selectedCols below, so a compare session simply suspends the live pass.
+    if (this.compareVersionId) return;
+    // hydrateWidgetFromRows reads the left rail's column selection for table/scatter widgets, which has
+    // nothing to do with a canvas widget's own query — refreshing those would rewrite their columns from
+    // whatever the builder currently has selected. Only viz types that derive purely from the stored
+    // query config are refreshed.
+    const targets = this.visibleWidgets.filter((w) =>
+      !!w.databaseConfig?.['dataset'] && w.viz !== 'table' && w.viz !== 'scatter');
+    if (!targets.length) return;
+
+    // hydrateWidgetData reports failures through queryError, which belongs to the preview the user is
+    // looking at; a background tick must not paint over it (or silently clear it).
+    const preservedQueryError = this.queryError;
+    let swapped = false;
+    for (const widget of targets) {
+      const dbConfig = widget.databaseConfig as Record<string, unknown>;
+      let hydrated: WidgetSpec;
+      try {
+        hydrated = await this.hydrateWidgetData(widget, dbConfig);
+      } catch {
+        continue;                                     // keep this widget's current data; retry next tick
+      }
+      if (this.destroyed) return;                     // navigated away while the query was in flight
+      // Match by OBJECT IDENTITY, not by w.id: restoreWidget assigns id = index + 1, so ids are
+      // per-dashboard ordinals and every dashboard has 1..N. A findIndex on id would resolve against
+      // whatever dashboard is loaded when the await returns and write this result into a different
+      // dashboard's widget. indexOf yields -1 after committedWidgets has been replaced, which is exactly
+      // the "stop, this result is stale" signal we want.
+      const idx = this.committedWidgets.indexOf(widget);
+      if (idx === -1) continue;                       // removed, or the dashboard changed, mid-flight
+      // An unchanged snapshot is not committed at all: a new widget object would make the tile rebuild
+      // its chart (and re-fire its drill-down analysis) for no visible change.
+      if (this.sameWidgetData(this.committedWidgets[idx], hydrated)) continue;
+      this.committedWidgets = [
+        ...this.committedWidgets.slice(0, idx),
+        hydrated,
+        ...this.committedWidgets.slice(idx + 1)
+      ];
+      swapped = true;
+    }
+    this.queryError = preservedQueryError;
+    if (swapped) this.syncDraft();
+  }
+
+  /** True when a re-queried widget carries exactly the data it already has. */
+  private sameWidgetData(a: WidgetSpec, b: WidgetSpec): boolean {
+    return a.kpiTotal === b.kpiTotal
+      && JSON.stringify(a.labels ?? []) === JSON.stringify(b.labels ?? [])
+      && JSON.stringify(a.datasets ?? []) === JSON.stringify(b.datasets ?? []);
   }
 
   private async _doRefreshPreview() {

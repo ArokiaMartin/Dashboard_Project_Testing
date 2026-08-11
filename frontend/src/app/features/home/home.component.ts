@@ -259,6 +259,7 @@ export class HomeComponent implements OnInit, AfterViewInit, OnDestroy {
   ];
 
   private themeSub?: Subscription;
+  private familiesSub?: Subscription;
 
   constructor(
     private router: Router,
@@ -275,7 +276,7 @@ export class HomeComponent implements OnInit, AfterViewInit, OnDestroy {
     });
 
     this.activeService.ensureLoaded().then(() => {
-      this.activeService.families$.subscribe(families => {
+      this.familiesSub = this.activeService.families$.subscribe(families => {
         this.availableFamilies = families.map(f => ({ key: f.key, label: f.label }));
         this.filteredDatasets = [...this.availableFamilies];
         if (this.dashLoaded) {
@@ -295,6 +296,9 @@ export class HomeComponent implements OnInit, AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     if (this.themeSub) {
       this.themeSub.unsubscribe();
+    }
+    if (this.familiesSub) {
+      this.familiesSub.unsubscribe();
     }
     if (this.chartInstance) {
       this.chartInstance.destroy();

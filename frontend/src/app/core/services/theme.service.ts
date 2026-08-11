@@ -61,8 +61,8 @@ export class ThemeService {
 
   private updateChartDefaults(isDark: boolean): void {
     if (Chart && Chart.defaults) {
-      Chart.defaults.color = isDark ? '#8b949e' : '#64748b';
-      Chart.defaults.borderColor = isDark ? '#30363d' : '#e2e8f0';
+      Chart.defaults.color = isDark ? '#94a3b8' : '#64748b';
+      Chart.defaults.borderColor = isDark ? '#334155' : '#e2e8f0';
     }
   }
 }

@@ -10,10 +10,14 @@ import { LayoutService } from '@core/services/layout.service';
   template: `
     <div class="sidebar" [class.collapsed]="collapsed">
       <div class="logo-section" routerLink="/home" title="Go to Home">
-        <img class="brand-logo" src="assets/hyland-logo.jpg" alt="Hyland" *ngIf="!collapsed" />
+        <div class="brand-block-sidebar" *ngIf="!collapsed">
+          <img class="brand-logo" src="assets/hyland-logo.jpg" alt="Hyland" />
+          <div class="brand-titles-sidebar">
+            <span class="subtitle-text">ANALYTICS SUITE</span>
+          </div>
+        </div>
         <img class="logo-mark-img" src="assets/logo-mark.jpg" alt="Hyland" *ngIf="collapsed" />
       </div>
-      <p class="subtitle" *ngIf="!collapsed">Analytics Suite</p>
 
       <nav class="menu">
         <a routerLink="/home" routerLinkActive="active" class="menu-item" [title]="collapsed ? 'Home' : ''">
@@ -77,28 +81,86 @@ import { LayoutService } from '@core/services/layout.service';
     .sidebar.collapsed { width: 74px; }
 
     .logo-section {
-      display: flex; align-items: center; justify-content: center;
-      padding: 0 18px 8px; min-height: 40px; cursor: pointer; text-decoration: none;
+      display: flex; align-items: flex-start; justify-content: flex-start;
+      padding: 0 16px 14px; min-height: 48px; cursor: pointer; text-decoration: none;
       border-radius: 8px;
       outline: none;
       transition: background 0.2s;
+      border-bottom: 1px solid var(--border-color, #eef1f6);
+      margin-bottom: 8px;
     }
     .logo-section:focus-visible {
       outline: 2px solid var(--accent-primary, #2563eb);
       outline-offset: 2px;
     }
-    .brand-logo { width: 140px; max-width: 100%; height: auto; display: block; margin-right: auto; border-radius: 6px; }
-    .logo-mark-img {
-      width: 42px; height: 42px; border-radius: 10px;
-      object-fit: contain; display: block;
+
+    .brand-block-sidebar {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
+      width: 100%;
     }
 
-    .subtitle {
-      margin: 0 0 14px; padding: 0 20px 16px;
-      font-size: 12px; color: var(--text-muted, #94a3b8); font-weight: 500;
-      border-bottom: 1px solid var(--border-color, #eef1f6);
+    .brand-logo {
+      width: 135px;
+      max-width: 100%;
+      height: auto;
+      display: block;
+      transition: filter 0.2s ease;
     }
-    .sidebar.collapsed .logo-section { border-bottom: 1px solid var(--border-color, #eef1f6); padding-bottom: 16px; margin-bottom: 8px; }
+
+    :host-context(body.dark-theme) .brand-logo,
+    :host-context(html[data-theme='dark']) .brand-logo,
+    :host-context(.dark-theme) .brand-logo {
+      filter: brightness(0) invert(1);
+      mix-blend-mode: screen;
+    }
+
+    .logo-mark-img {
+      width: 38px; height: 38px; border-radius: 8px;
+      object-fit: contain; display: block;
+      transition: filter 0.2s ease;
+    }
+
+    :host-context(body.dark-theme) .logo-mark-img,
+    :host-context(html[data-theme='dark']) .logo-mark-img,
+    :host-context(.dark-theme) .logo-mark-img {
+      filter: brightness(0) invert(1);
+      mix-blend-mode: screen;
+    }
+
+    .brand-titles-sidebar {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      margin-top: 2px;
+    }
+
+    .brand-lumina-text {
+      font-family: 'Syncopate', 'Cabinet Grotesk', 'Space Grotesk', sans-serif;
+      font-size: 19px;
+      font-weight: 800;
+      letter-spacing: 4.5px;
+      color: var(--text-primary, #0f172a);
+      line-height: 1.1;
+    }
+
+    .subtitle-text {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 1.2px;
+      color: #0f172a;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+
+    :host-context(body.dark-theme) .subtitle-text,
+    :host-context(html[data-theme='dark']) .subtitle-text,
+    :host-context(.dark-theme) .subtitle-text {
+      color: #cbd5e1;
+    }
+    .sidebar.collapsed .logo-section { border-bottom: 1px solid var(--border-color, #eef1f6); padding-bottom: 12px; margin-bottom: 8px; justify-content: center; }
 
     .menu { flex: 1; padding: 6px 12px; display: flex; flex-direction: column; gap: 2px; }
 

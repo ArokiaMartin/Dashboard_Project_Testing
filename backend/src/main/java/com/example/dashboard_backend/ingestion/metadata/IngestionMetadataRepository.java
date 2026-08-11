@@ -48,6 +48,9 @@ public class IngestionMetadataRepository {
         // Content fingerprint of a version's data, so an identical re-upload can reuse the existing
         // version (same dashboard) instead of creating a duplicate version.
         jdbcTemplate.execute("ALTER TABLE data_uploads ADD COLUMN IF NOT EXISTS data_fingerprint VARCHAR(64)");
+        // How this upload's rows arrive: NULL for a normal file upload, 'live' for a continuously-appended
+        // stream. The delete path honours it so a live table is never dropped from under a running writer.
+        jdbcTemplate.execute("ALTER TABLE data_uploads ADD COLUMN IF NOT EXISTS source_kind VARCHAR(32)");
 
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS field_metadata (

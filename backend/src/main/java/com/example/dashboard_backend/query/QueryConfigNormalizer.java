@@ -24,13 +24,18 @@ import java.util.UUID;
  * Single source of truth for turning a raw dashboard query config (as produced by the frontend and as
  * persisted in {@code dashboard_widgets.database_config_json}) into an execution-ready config.
  *
- * <p>"Execution-ready" means three backend-owned transformations have been applied:
+ * <p>"Execution-ready" means these backend-owned transformations have been applied:
  * <ol>
+ *   <li>any client-supplied {@code datasetFromSql} is stripped unconditionally — a FROM subquery is only
+ *       ever built server-side, so a caller can never splice SQL into the FROM clause;</li>
  *   <li>the {@code dataset} token (an upload UUID or a table/file name) is resolved to a real physical
  *       table name;</li>
- *   <li>every user-facing field name is mapped to its normalized physical column name; and</li>
+ *   <li>every user-facing field name is mapped to its normalized physical column name;</li>
  *   <li>for datasets with nested child tables, a flattened derived table (root {@code LEFT JOIN} its
- *       referenced children) is injected as {@code datasetFromSql} so fields from any table resolve.</li>
+ *       referenced children) is injected as {@code datasetFromSql} so fields from any table resolve; and</li>
+ *   <li>{@code upload_id} version scoping is applied on BOTH branches — the nested join scopes the root
+ *       and every child, and the flat branch wraps the single table in a derived table filtered to this
+ *       upload — so no query ever silently aggregates across data versions.</li>
  * </ol>
  *
  * <p>This class exists so that <em>every</em> code path that builds SQL from a query config — live
@@ -99,16 +104,42 @@ public class QueryConfigNormalizer {
     }
 
     /**
+     * A server-side supplier of a trusted {@code datasetFromSql} derived table, consulted AFTER the
+     * client-supplied one has been stripped and after the normalizer built its own. Implementations get
+     * the resolved dataset plus the already-normalized config and return {@code null} to leave the
+     * normalizer's own FROM clause in place.
+     *
+     * <p>This is the ONLY sanctioned way to inject a FROM subquery: it is unreachable from request
+     * payloads, so a caller can never smuggle SQL through it. Whatever is returned MUST contribute zero
+     * bind parameters (no {@code ?}), otherwise generateSql's positional parameter ordering breaks.
+     */
+    public interface TrustedFromSqlProvider {
+        String fromSqlFor(DatasetRef dataset, ObjectNode normalizedConfig);
+    }
+
+    /**
      * Resolve the dataset token to a real table and map user-facing field names to normalized DB
      * columns; when the dataset has nested child tables, attach a flattened join derived table as
      * {@code datasetFromSql}. Returns a new node — the input config is not mutated.
      */
     public JsonNode normalize(JsonNode config) {
+        return normalize(config, null);
+    }
+
+    /**
+     * Same as {@link #normalize(JsonNode)}, but lets a server-side component replace the derived table
+     * this method built with a trusted one of its own (see {@link TrustedFromSqlProvider}). Passing
+     * {@code null} is byte-for-byte identical to {@link #normalize(JsonNode)}.
+     */
+    public JsonNode normalize(JsonNode config, TrustedFromSqlProvider trustedFrom) {
         if (!(config instanceof ObjectNode objectNode)) {
             throw new IllegalArgumentException("Invalid query config payload");
         }
 
         ObjectNode normalized = objectNode.deepCopy();
+        // Security: a FROM subquery is ONLY ever built server-side (below). Strip any client-supplied
+        // datasetFromSql so a caller can't splice arbitrary SQL into the FROM clause.
+        normalized.remove("datasetFromSql");
         String datasetToken = normalized.path("dataset").asText(null);
         DatasetRef datasetMeta = resolveDataset(datasetToken);
         normalized.put("dataset", datasetMeta.tableName());
@@ -137,6 +168,27 @@ public class QueryConfigNormalizer {
             remapFilters(normalized.with("filters").withArray("rules"), fieldMap);
             remapHaving(normalized.withArray("having"), fieldMap);
             remapSorting(normalized.withArray("sorting"), fieldMap);
+
+            // Version scoping: re-uploads of the same schema share ONE physical table (each upload is a
+            // distinct data version keyed by upload_id). Wrap the single table in a derived table filtered
+            // to this upload so charts/KPIs never silently aggregate across versions. The upload id is a
+            // validated UUID resolved server-side (never client input), so inlining it is safe.
+            if (datasetMeta.uploadId() != null) {
+                String scoped = "(SELECT * FROM " + quoteIdentifier(datasetMeta.tableName())
+                        + " WHERE upload_id = '" + datasetMeta.uploadId() + "'::uuid) AS "
+                        + quoteIdentifier(datasetMeta.tableName());
+                normalized.put("datasetFromSql", scoped);
+            }
+        }
+
+        // Trusted, server-side-only override of the FROM subquery (e.g. the bucketed/windowed derived
+        // table a live source is read through). Deliberately applied AFTER the strip above, so this is
+        // the single place a FROM subquery can enter that a client cannot reach.
+        if (trustedFrom != null) {
+            String injected = trustedFrom.fromSqlFor(datasetMeta, normalized);
+            if (injected != null && !injected.isBlank()) {
+                normalized.put("datasetFromSql", injected);
+            }
         }
 
         return normalized;

@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, ViewChild, ElementRef, AfterViewInit, OnDestroy, OnChanges, SimpleChanges, HostListener } from '@angular/core';
+import { Component, Input, Output, EventEmitter, ViewChild, ElementRef, AfterViewInit, OnDestroy, OnChanges, SimpleChanges, HostListener, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Chart, registerables } from 'chart.js';
 import { BackendIntegrationService, DrilldownFilter } from '@core/services/backend-integration.service';
@@ -209,6 +209,10 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
   @Output() edit = new EventEmitter<void>();
   @ViewChild('cv') canvas?: ElementRef<HTMLCanvasElement>;
   private chart?: Chart;
+  /** Opt in to the in-place update path. Left false, the tile keeps its original full-render behaviour on
+   *  every spec change, so a dashboard that never enables live refresh is unaffected. Set by the builder
+   *  only while a live refresh is actually running. */
+  @Input() liveUpdates = false;
 
   // ---- three-dots menu + inline rename ----
   menuOpen = false;
@@ -256,7 +260,7 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
   private autoNextDim: string | null = null;  // backend-picked next dimension (null = nothing to drill into)
   private autoEnabled = false;           // backend verdict: is a further drill meaningful?
 
-  constructor(private backend: BackendIntegrationService) {}
+  constructor(private backend: BackendIntegrationService, private zone: NgZone) {}
 
   /** Auto mode applies to category charts that carry a measure — the target of the new drill-down. */
   private autoMode(): boolean {
@@ -297,6 +301,16 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
       
       if (configChanged || vizChanged) {
         this.resetDrillState();          // a replaced/edited widget starts fresh at the top level
+      }
+      // Live refresh: same query, same visualisation — only the rows moved. Update the Chart that already
+      // exists instead of rebuilding it, and return so initRender() never runs: its auto-analysis call
+      // (loadAuto on the base view) would otherwise fire one POST /api/drilldown per widget per tick.
+      // Gated on liveUpdates: restoreDashboardState also replaces widgets with re-hydrated copies that
+      // differ only in their values, and that path still needs initRender() for its loadAuto retry and the
+      // canDrillDown() cursor write.
+      if (this.liveUpdates && !configChanged && !vizChanged
+        && this.isDataOnlyChange(prev, curr) && this.updateInPlace(curr)) {
+        return;
       }
       setTimeout(() => this.initRender(), 0);
     }
@@ -696,6 +710,85 @@ export class WidgetTileComponent implements AfterViewInit, OnChanges, OnDestroy 
   private hideTooltip(): void {
     const el = this.canvas?.nativeElement?.parentElement?.querySelector<HTMLElement>('.wt-tooltip');
     if (el) el.style.opacity = '0';
+  }
+
+  /**
+   * True when a replaced spec differs ONLY in its data (labels / series values / KPI total) — the shape a
+   * live refresh produces. Anything structural (series count, title, colours, legend) still rebuilds, and
+   * an identical spec (undo/redo and draft round-trips clone widgets) keeps the existing full-render path.
+   */
+  private isDataOnlyChange(prev: WidgetSpec | undefined, curr: WidgetSpec | undefined): boolean {
+    if (!prev || !curr || prev === curr) return false;
+    if (prev.id !== curr.id || prev.title !== curr.title || prev.primary !== curr.primary
+      || prev.multiColor !== curr.multiColor || prev.fill !== curr.fill || prev.radial !== curr.radial
+      || prev.indexAxis !== curr.indexAxis || prev.showLegend !== curr.showLegend
+      || prev.legendPosition !== curr.legendPosition || prev.stacked !== curr.stacked) return false;
+    if ((prev.datasets?.length ?? 0) !== (curr.datasets?.length ?? 0)) return false;
+    return prev.kpiTotal !== curr.kpiTotal
+      || JSON.stringify(prev.labels ?? []) !== JSON.stringify(curr.labels ?? [])
+      || JSON.stringify(prev.datasets ?? []) !== JSON.stringify(curr.datasets ?? []);
+  }
+
+  /**
+   * Copies `source` into the array Chart.js already holds, keeping that reference so the instance is not
+   * rebuilt. `source` is NOT modified: it belongs to the parent's committed widget (dashboard-canvas binds
+   * [spec]="w" straight off visibleWidgets), and those same array references are handed to the draft
+   * service and shared by undo snapshots, so trimming it here would retroactively delete saved rows.
+   * There is deliberately no point cap: the refresh driver replaces each series wholesale rather than
+   * appending, so nothing grows without bound and a cap could only discard legitimate categories.
+   */
+  private replaceInPlace(target: any[], source: any[]): void {
+    target.length = 0;
+    for (const value of source) target.push(value);
+  }
+
+  /**
+   * Live refresh sibling of render(): feeds new values into the Chart instance that already exists rather
+   * than destroying it. Returns false when the tile can't be updated incrementally, so the caller can fall
+   * back to the normal render path.
+   */
+  private updateInPlace(next: WidgetSpec): boolean {
+    // Never touch a drilled tile. While drilled the chart is fed from drillLabels/drillDatasets (see
+    // currentSpec), so an unfiltered live snapshot would silently mix into a filtered view; a drill that is
+    // still loading resolves into scheduleRender() and would clobber the update a moment later.
+    if (this.drillActive() || this.drillStack.length > 0 || this.drillLoading) return false;
+    // A saved drill position hasn't been restored yet at this point — leave that to initRender().
+    if (this.spec.drillState?.drillStack?.length) return false;
+
+    // A KPI's number is a template binding, not canvas data: move the value, leave the chart alone.
+    if (this.spec.viz === 'kpi' && !this.spec.chartType) {
+      this.spec.kpiTotal = next.kpiTotal ?? this.spec.kpiTotal;
+      if (next.kpiLabel !== undefined) this.spec.kpiLabel = next.kpiLabel;
+      return true;
+    }
+
+    // Tables render via template bindings, and scatter plots `points` rather than Series.data — both take
+    // the normal render path.
+    if (this.spec.viz === 'table' || this.spec.chartType === 'scatter') return false;
+
+    const chart = this.chart;
+    if (!chart) return false;
+
+    const nextSeries = next.datasets ?? [];
+    // pie / doughnut / polar build exactly ONE chart dataset from datasets[0]; every other type maps one
+    // chart dataset per series. A changed series count needs a rebuild (colours and the legend derive
+    // from it), so bail out and let render() do the work.
+    const expected = this.spec.multiColor ? Math.min(1, nextSeries.length) : nextSeries.length;
+    if (!expected || chart.data.datasets.length !== expected) return false;
+
+    // Chart.js never re-fires its external-tooltip callback on a data mutation, so a visible popup would
+    // keep describing a point that has just moved. Hide it first, exactly as render() does.
+    this.hideTooltip();
+
+    // Mutate and redraw OUTSIDE Angular's zone: chart.update() schedules requestAnimationFrame work, and
+    // with a repeating refresh that would mean a change-detection pass per animation frame per tile.
+    this.zone.runOutsideAngular(() => {
+      if (!Array.isArray(chart.data.labels)) chart.data.labels = [];
+      this.replaceInPlace(chart.data.labels, next.labels ?? []);
+      chart.data.datasets.forEach((ds, i) => this.replaceInPlace(ds.data as any[], nextSeries[i]?.data ?? []));
+      chart.update('none');
+    });
+    return true;
   }
 
   private render() {

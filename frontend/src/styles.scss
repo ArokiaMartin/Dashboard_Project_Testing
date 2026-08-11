@@ -1,5 +1,24 @@
+@import url('https://fonts.googleapis.com/css2?family=Syncopate:wght@700;800&family=Cabinet+Grotesk:wght@800;900&family=Syne:wght@700;800;900&family=Unbounded:wght@700;800;900&family=Space+Grotesk:wght@700&display=swap');
+
 /* Import Bootstrap */
 @import '~bootstrap/dist/css/bootstrap.min.css';
+
+/* Shimmer Text Keyframes for Lumina */
+@keyframes luminaShimmer {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Ultra-Luxury Lumina Brand Typography System */
+.brand-lumina-title,
+.brand-lumina-text,
+.lumina-brand-font {
+  font-family: 'Syncopate', 'Cabinet Grotesk', 'Space Grotesk', sans-serif !important;
+  font-weight: 800 !important;
+  letter-spacing: 5px !important;
+  text-transform: uppercase !important;
+}
 
 /* Global Styles */
 
@@ -137,21 +156,21 @@ body {
 
 body.dark-theme,
 html[data-theme='dark'] {
-  --bg-app: #0d1117;
-  --bg-surface: #161b22;
-  --bg-surface-elevated: #21262d;
-  --bg-subtle: #090d16;
-  --bg-hover: #21262d;
-  --border-color: #30363d;
-  --border-subtle: #21262d;
-  --text-primary: #f0f6fc;
-  --text-secondary: #8b949e;
-  --text-muted: #6e7681;
-  --accent-primary: #38bdf8;
+  --bg-app: #0b1120;
+  --bg-surface: #1e293b;
+  --bg-surface-elevated: #334155;
+  --bg-subtle: #0f172a;
+  --bg-hover: #334155;
+  --border-color: #334155;
+  --border-subtle: #1e293b;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --accent-primary: #3b82f6;
   --accent-hover: #60a5fa;
-  --accent-subtle: rgba(56, 189, 248, 0.14);
-  --card-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
-  --modal-overlay: rgba(0, 0, 0, 0.85);
+  --accent-subtle: rgba(59, 130, 246, 0.15);
+  --card-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --modal-overlay: rgba(0, 0, 0, 0.75);
 }
 
 /* Dark Mode Comprehensive Styling */
@@ -160,15 +179,15 @@ body.dark-theme {
   color: var(--text-primary);
 
   ::-webkit-scrollbar-track {
-    background: #161b22;
+    background: #1e293b;
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #30363d;
+    background: #475569;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #484f58;
+    background: #64748b;
   }
 
   /* Core Layout */
@@ -177,8 +196,18 @@ body.dark-theme {
   }
 
   .topbar {
-    background: rgba(22, 27, 34, 0.85);
+    background: rgba(30, 41, 59, 0.85);
     border-bottom-color: var(--border-color);
+  }
+
+  .sidebar .brand-logo,
+  .sidebar .logo-mark-img {
+    filter: brightness(0) invert(1) !important;
+    mix-blend-mode: screen !important;
+  }
+
+  .sidebar .brand-lumina-text {
+    color: #ffffff !important;
   }
 
   .expand-header-trigger {
