@@ -112,15 +112,6 @@ import { AuthService, REQUIRED_EMAIL_DOMAIN } from '../../core/services/auth.ser
               <p>Sign in with your official Hyland corporate email</p>
             </div>
 
-            <!-- Alert Badge -->
-            <div *ngIf="errorMessage" class="auth-alert error">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"></circle>
-                <line x1="12" y1="8" x2="12" y2="12"></line>
-                <line x1="12" y1="16" x2="12.01" y2="16"></line>
-              </svg>
-              <span>{{ errorMessage }}</span>
-            </div>
 
             <!-- Form -->
             <form (ngSubmit)="onSubmit()" class="auth-form" novalidate>
@@ -192,6 +183,34 @@ import { AuthService, REQUIRED_EMAIL_DOMAIN } from '../../core/services/auth.ser
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast-container" *ngIf="toastVisible" [class]="'toast toast-' + toastType">
+      <div class="toast-icon">
+        <svg *ngIf="toastType === 'error'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+        <svg *ngIf="toastType === 'success'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+          <polyline points="22 4 12 14.01 9 11.01"></polyline>
+        </svg>
+        <svg *ngIf="toastType === 'info'" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+      </div>
+      <span class="toast-message">{{ toastMessage }}</span>
+      <button class="toast-close" (click)="dismissToast()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+      <div class="toast-progress"></div>
     </div>
   `,
   styles: [`
@@ -297,7 +316,7 @@ import { AuthService, REQUIRED_EMAIL_DOMAIN } from '../../core/services/auth.ser
 
     /* Left Hero Panel */
     .hero-panel {
-      width: 45%;
+      width: 56%;
       background: linear-gradient(135deg, #0b1328 0%, #1e293b 50%, #1d4ed8 100%);
       color: #ffffff;
       padding: 48px 44px;
@@ -343,17 +362,17 @@ import { AuthService, REQUIRED_EMAIL_DOMAIN } from '../../core/services/auth.ser
 
     .brand-lumina-title {
       margin: 0;
-      font-family: 'Syncopate', 'Cabinet Grotesk', 'Space Grotesk', sans-serif;
-      font-size: 32px;
-      font-weight: 800;
-      letter-spacing: 6px;
-      background: linear-gradient(110deg, #ffffff 0%, #dbeafe 25%, #60a5fa 50%, #e0e7ff 75%, #ffffff 100%);
-      background-size: 200% auto;
+      font-family: 'Montserrat', 'Inter', -apple-system, sans-serif;
+      font-size: 36px;
+      font-weight: 700;
+      letter-spacing: 8px;
+      background: linear-gradient(110deg, #ffffff 0%, #e0e7ff 20%, #93c5fd 45%, #dbeafe 70%, #ffffff 100%);
+      background-size: 250% auto;
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
-      animation: luminaShimmer 8s ease infinite;
-      line-height: 1.1;
-      filter: drop-shadow(0 0 16px rgba(96, 165, 250, 0.45));
+      animation: luminaShimmer 6s ease infinite;
+      line-height: 1.15;
+      filter: drop-shadow(0 0 18px rgba(96, 165, 250, 0.5));
     }
 
     .brand-sub-badge {
@@ -424,7 +443,7 @@ import { AuthService, REQUIRED_EMAIL_DOMAIN } from '../../core/services/auth.ser
 
     /* Right Form Panel (Clean Light Mode Card) */
     .form-panel {
-      width: 55%;
+      width: 44%;
       background: #ffffff;
       display: flex;
       align-items: center;
@@ -455,21 +474,89 @@ import { AuthService, REQUIRED_EMAIL_DOMAIN } from '../../core/services/auth.ser
       color: #64748b;
     }
 
-    .auth-alert {
+    /* ── Toast Notification ───────────────────────── */
+    .toast-container {
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      z-index: 9999;
       display: flex;
       align-items: center;
-      gap: 10px;
-      padding: 12px 14px;
-      border-radius: 10px;
-      font-size: 13px;
-      font-weight: 600;
-      margin-bottom: 18px;
+      gap: 12px;
+      min-width: 300px;
+      max-width: 420px;
+      padding: 14px 16px 14px 18px;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(15, 23, 42, 0.12), 0 1px 4px rgba(15, 23, 42, 0.06);
+      font-size: 13.5px;
+      font-weight: 500;
+      animation: toastSlideIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+      overflow: hidden;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
     }
 
-    .auth-alert.error {
-      background: #fef2f2;
+    @keyframes toastSlideIn {
+      from { opacity: 0; transform: translateX(100%) scale(0.88); }
+      to   { opacity: 1; transform: translateX(0) scale(1); }
+    }
+
+    .toast.toast-error {
+      background: #ffffff;
       border: 1px solid #fecaca;
-      color: #dc2626;
+      border-left: 4px solid #ef4444;
+      color: #0f172a;
+    }
+    .toast.toast-error .toast-icon { color: #ef4444; }
+
+    .toast.toast-success {
+      background: #ffffff;
+      border: 1px solid #bbf7d0;
+      border-left: 4px solid #22c55e;
+      color: #0f172a;
+    }
+    .toast.toast-success .toast-icon { color: #22c55e; }
+
+    .toast.toast-info {
+      background: #ffffff;
+      border: 1px solid #bfdbfe;
+      border-left: 4px solid #3b82f6;
+      color: #0f172a;
+    }
+    .toast.toast-info .toast-icon { color: #3b82f6; }
+
+    .toast-icon   { flex-shrink: 0; display: flex; align-items: center; }
+    .toast-message { flex: 1; line-height: 1.45; color: #1e293b; }
+
+    .toast-close {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 2px;
+      display: flex;
+      align-items: center;
+      opacity: 0.4;
+      transition: opacity 0.15s ease;
+      color: #64748b;
+      flex-shrink: 0;
+    }
+    .toast-close:hover { opacity: 0.9; }
+
+    .toast-progress {
+      position: absolute;
+      bottom: 0; left: 0;
+      height: 3px;
+      width: 100%;
+      border-radius: 0 0 12px 12px;
+      animation: toastProgress 4s linear forwards;
+    }
+    .toast-error .toast-progress   { background: linear-gradient(90deg, #ef4444, #fca5a5); }
+    .toast-success .toast-progress { background: linear-gradient(90deg, #22c55e, #86efac); }
+    .toast-info .toast-progress    { background: linear-gradient(90deg, #3b82f6, #93c5fd); }
+
+    @keyframes toastProgress {
+      from { width: 100%; }
+      to   { width: 0%; }
     }
 
     .auth-form {
@@ -676,6 +763,10 @@ export class LoginComponent implements OnInit {
   showPassword = false;
   loading = false;
   errorMessage = '';
+  toastVisible = false;
+  toastMessage = '';
+  toastType: 'error' | 'success' | 'info' = 'error';
+  private toastTimer: any;
   isEmailTouched = false;
   isEmailValid = true;
   returnUrl = '/home';
@@ -706,6 +797,7 @@ export class LoginComponent implements OnInit {
     this.isEmailTouched = true;
     this.isEmailValid = true;
     this.errorMessage = '';
+    this.dismissToast();
   }
 
   onSubmit(): void {
@@ -713,17 +805,18 @@ export class LoginComponent implements OnInit {
     this.isEmailValid = this.authService.validateHylandEmail(this.email);
 
     if (!this.isEmailValid) {
-      this.errorMessage = `Only Hyland emails ending with ${REQUIRED_EMAIL_DOMAIN} are allowed.`;
+      this.showToast(`Only Hyland emails ending with ${REQUIRED_EMAIL_DOMAIN} are allowed.`, 'error');
       return;
     }
 
     if (!this.password) {
-      this.errorMessage = 'Please enter your password.';
+      this.showToast('Please enter your password.', 'error');
       return;
     }
 
     this.loading = true;
     this.errorMessage = '';
+    this.dismissToast();
 
     setTimeout(() => {
       const res = this.authService.login(this.email, this.password);
@@ -732,8 +825,20 @@ export class LoginComponent implements OnInit {
       if (res.success) {
         this.router.navigateByUrl(this.returnUrl);
       } else {
-        this.errorMessage = res.message || 'Failed to sign in.';
+        this.showToast(res.message || 'Failed to sign in.', 'error');
       }
     }, 400);
+  }
+
+  showToast(message: string, type: 'error' | 'success' | 'info' = 'error'): void {
+    this.toastMessage = message;
+    this.toastType = type;
+    this.toastVisible = true;
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => this.dismissToast(), 4000);
+  }
+
+  dismissToast(): void {
+    this.toastVisible = false;
   }
 }
