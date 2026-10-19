@@ -1,7 +1,0 @@
-[
-  {"patient_id": 7001, "patient_name": "John Smith", "appointment_date": "2026-02-01", "doctor": "Dr. Johnson", "visit_type": "Checkup"},
-  {"patient_id": 7002, "patient_name": "Sarah Lee", "appointment_date": "2026-02-03", "doctor": "Dr. Wilson", "visit_type": "Consultation"},
-  {"patient_id": 7003, "patient_name": "Michael Brown", "appointment_date": "2026-02-05", "doctor": "Dr. Davis", "visit_type": "Treatment"},
-  {"patient_id": 7004, "patient_name": "Jennifer Martinez", "appointment_date": "2026-02-08", "doctor": "Dr. Garcia", "visit_type": "Follow-up"},
-  {"patient_id": 7005, "patient_name": "Robert Taylor", "appointment_date": "2026-02-10", "doctor": "Dr. Anderson", "visit_type": "Lab Work"}
-]

@@ -1,8 +1,0 @@
-[
-  {"id": 301, "date": "2026-04-10", "region": "West", "amount": 32000, "quantity": 128},
-  {"id": 302, "date": "2026-04-10", "region": "Central", "amount": 29500, "quantity": 118},
-  {"id": 303, "date": "2026-04-10", "region": "Northeast", "amount": 35500, "quantity": 142},
-  {"id": 304, "date": "2026-05-10", "region": "West", "amount": 33500, "quantity": 134},
-  {"id": 305, "date": "2026-05-10", "region": "Central", "amount": 31000, "quantity": 124},
-  {"id": 306, "date": "2026-05-10", "region": "Northeast", "amount": 37000, "quantity": 148}
-]
