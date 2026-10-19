@@ -37,6 +37,31 @@ application-secret.properties
 application-secret.yml
 
 # =========================
+# Credentials / Secrets
+# =========================
+secrets.properties
+secrets.yml
+credentials.properties
+credentials.json
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.truststore
+
+# =========================
+# AI Assistants / Tools
+# =========================
+.claude/
+.copilot/
+.cursor/
+.aider*
+.continue/
+.windsurf/
+
+# =========================
 # IntelliJ IDEA
 # =========================
 .idea/
